@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kendr-bench"
+version = "0.1.0"
+description = "Reproducible cost and token benchmarking for OpenAI and Kendr"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Kendr AI" }]
+dependencies = [
+  "openai>=1.109.0",
+  "python-dotenv>=1.0.1",
+]
+
+[project.optional-dependencies]
+# Kendr is intentionally installed from its pinned Git source revision.
+kendr = [
+  "kendr @ git+https://github.com/Kendr-AI/Kendr.git@2a07a08b266f43593d10843ddf213c3ab7b801c5",
+]
+dev = [
+  "pytest>=8.3",
+  "pytest-cov>=5.0",
+]
+
+[project.scripts]
+kendr-bench = "kendr_bench.cli:main"
+kendr-livebench = "kendr_bench.livebench_cli:main"
+kendr-benchmark-matrix = "kendr_bench.matrix_cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kendr_bench"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]

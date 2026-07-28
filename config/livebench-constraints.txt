@@ -1,0 +1,3 @@
+# LiveBench leaves LiteLLM unbounded. 1.93.0 is source-only on Windows and
+# invokes a Rust build; this compatible wheel keeps setup deterministic.
+litellm==1.81.16

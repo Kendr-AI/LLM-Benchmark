@@ -1,0 +1,70 @@
+# Secrets and machine-local configuration
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+credentials*.json
+secrets*.json
+
+# Generated benchmark data
+# Raw prompts, responses, request metadata, and paid-run artifacts stay local.
+results/
+outputs/
+artifacts/
+*.log
+
+# Downloaded benchmark/vendor sources and local caches
+.vendor/
+.cache/
+cache/
+tmp/
+.tmp/
+
+# Python virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python bytecode and native extensions
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+
+# Packaging and build output
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Tests, coverage, type checkers, and linters
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+.mypy_cache/
+.pyright/
+.ruff_cache/
+.hypothesis/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini

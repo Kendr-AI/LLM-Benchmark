@@ -1,0 +1,33 @@
+{
+  "as_of": "2026-07-27",
+  "models": {
+    "openai:gpt-5.6-sol": {
+      "currency": "USD",
+      "input_per_million": "5.00",
+      "cached_input_per_million": "0.50",
+      "cache_write_input_per_million": "6.25",
+      "output_per_million": "30.00",
+      "long_context": {
+        "threshold_input_tokens": 272000,
+        "input_multiplier": "2.0",
+        "output_multiplier": "1.5"
+      },
+      "source": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+      "notes": "Standard service tier. Cache writes are 1.25x uncached input. Long-context multipliers apply to the full request above the threshold."
+    },
+    "openai:gpt-5.6-terra": {
+      "currency": "USD",
+      "input_per_million": "2.50",
+      "cached_input_per_million": "0.25",
+      "cache_write_input_per_million": "3.125",
+      "output_per_million": "15.00",
+      "long_context": {
+        "threshold_input_tokens": 272000,
+        "input_multiplier": "2.0",
+        "output_multiplier": "1.5"
+      },
+      "source": "https://developers.openai.com/api/docs/pricing",
+      "notes": "Standard service tier. Cache writes are 1.25x uncached input. Long-context multipliers apply to the full request above the threshold."
+    }
+  }
+}
