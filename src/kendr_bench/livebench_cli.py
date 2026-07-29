@@ -186,10 +186,10 @@ def _add_shared_run_arguments(parser: argparse.ArgumentParser) -> None:
         default="kendr",
         help="API provider to instrument (default: kendr)",
     )
-    parser.add_argument("--model", default="kc-intelligent")
+    parser.add_argument("--model", default="kendr-intelligent")
     parser.add_argument(
         "--model-display-name",
-        default="kendr-kc-intelligent",
+        default="kendr-intelligent",
         help="Stable model name written into LiveBench result files",
     )
     parser.add_argument(
@@ -267,7 +267,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="kendr-livebench",
         description=(
-            "Run kc-intelligent through pinned, unmodified LiveBench questions "
+            "Run kendr-intelligent through pinned, unmodified LiveBench questions "
             "and graders while retaining Kendr cost and routing metadata."
         ),
     )

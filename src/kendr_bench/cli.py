@@ -75,7 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Versioned provider pricing file",
     )
     parser.add_argument("--openai-model", default="gpt-5.6-sol")
-    parser.add_argument("--kendr-model", default="kc-intelligent")
+    parser.add_argument("--kendr-model", default="kendr-intelligent")
     parser.add_argument(
         "--openai-reasoning-effort",
         choices=("none", "low", "medium", "high", "xhigh", "max"),

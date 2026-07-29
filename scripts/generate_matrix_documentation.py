@@ -449,7 +449,9 @@ def detailed_report(
 ) -> str:
     leader = metrics[0]
     sol = next(row for row in metrics if row["panel_key"] == "openai-sol")
-    kc = next(row for row in metrics if row["panel_key"] == "kendr-intelligent")
+    kendr = next(
+        row for row in metrics if row["panel_key"] == "kendr-intelligent"
+    )
     total_input = sum(int(row["input_tokens"]) for row in metrics)
     total_output = sum(int(row["output_tokens"]) for row in metrics)
     total_cost = sum(float(row["cost_usd"]) for row in metrics)
@@ -521,8 +523,8 @@ def detailed_report(
     if not error_rows:
         error_rows = [["None", "—", "—", "—", "—", "No raw failures"]]
     route_rows = [
-        [route, count, percent(count / kc["final_successes"])]
-        for route, count in json.loads(kc["route_distribution"]).items()
+        [route, count, percent(count / kendr["final_successes"])]
+        for route, count in json.loads(kendr["route_distribution"]).items()
     ]
     o5 = {
         row["question_id"]: row
@@ -567,11 +569,11 @@ def detailed_report(
         ),
         "",
         (
-            f"KC Intelligent delivered {percent(kc['final_reliability'])} "
-            f"final-answer reliability, but {percent(kc['raw_attempt_reliability'])} "
+            f"Kendr Intelligent delivered {percent(kendr['final_reliability'])} "
+            f"final-answer reliability, but {percent(kendr['raw_attempt_reliability'])} "
             f"raw-attempt reliability because one failed call was retried. Its "
             f"requested 2,048-token cap compliance was "
-            f"{percent(kc['output_cap_compliance'])}; this is a separate "
+            f"{percent(kendr['output_cap_compliance'])}; this is a separate "
             "OpenAI-compatibility issue, not a timeout recurrence."
         ),
         "",
@@ -653,7 +655,7 @@ def detailed_report(
         ),
         "",
         (
-            "The timeout fix held: no raw call failed with HTTP 504. The KC "
+            "The timeout fix held: no raw call failed with HTTP 504. The Kendr "
             "failure was returned after the selected provider generated exactly "
             "4,096 tokens and Kendr rejected the truncated result; LiveBench "
             "retried it successfully. Consequently, final-answer reliability "
@@ -669,11 +671,11 @@ def detailed_report(
             "field, so those controls are not normalized across Kendr-routed models."
         ),
         "",
-        "## KC Intelligent routing",
+        "## Kendr Intelligent routing",
         "",
         markdown_table(["Selected route", "Final answers", "Share"], route_rows),
         "",
-        "KC is a routed system, so its score measures the combined router-plus-model behavior, latency, and billing—not one foundation model.",
+        "Kendr is a routed system, so its score measures the combined router-plus-model behavior, latency, and billing—not one foundation model.",
         "",
         "## Why Opus 5 scored below Opus 4.8 here",
         "",
@@ -714,8 +716,8 @@ def detailed_report(
         "## Conclusion",
         "",
         (
-            f"On the measured workload, KC led quality and was "
-            f"{float(kc['quality_points_per_usd']) / float(sol['quality_points_per_usd']):.2f}× "
+            f"On the measured workload, Kendr led quality and was "
+            f"{float(kendr['quality_points_per_usd']) / float(sol['quality_points_per_usd']):.2f}× "
             "as cost-efficient as Sol by quality points per captured USD, but it "
             "was slower and failed the requested output-cap contract on some "
             "successful calls. The timeout regression is resolved; token-control "

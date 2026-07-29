@@ -50,7 +50,7 @@ DEFAULT_MODEL_PANEL = (
     ModelSpec(
         key="kendr-intelligent",
         provider="kendr",
-        model="kc-intelligent",
+        model="kendr-intelligent",
         label="Kendr Intelligent",
         access="Kendr routed system",
         license="Proprietary service",

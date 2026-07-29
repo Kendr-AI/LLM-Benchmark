@@ -14,8 +14,8 @@ from kendr_bench.livebench_cli import (
 
 def test_generation_command_uses_adapter_and_fixed_single_choice(tmp_path):
     args = Namespace(
-        model="kc-intelligent",
-        model_display_name="kendr-kc-intelligent",
+        model="kendr-intelligent",
+        model_display_name="kendr-intelligent",
         api_base="https://kendr.org/v1",
         bench_name=["live_bench/reasoning"],
         livebench_release_option="2024-11-25",

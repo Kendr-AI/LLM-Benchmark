@@ -28,7 +28,7 @@ def test_kendr_adapter_adds_idempotency_and_captures_metadata(
     captured = {}
     response = SimpleNamespace(
         id="req-123",
-        model="kc-intelligent",
+        model="kendr-intelligent",
         choices=[
             SimpleNamespace(
                 message=SimpleNamespace(content="The answer is 4.")
@@ -69,7 +69,7 @@ def test_kendr_adapter_adds_idempotency_and_captures_metadata(
     monkeypatch.setenv("KENDR_LIVEBENCH_USD_PER_CREDIT", "0.002")
 
     output, output_tokens, metadata = kendr_chat_completion(
-        model="kc-intelligent",
+        model="kendr-intelligent",
         messages=[{"role": "user", "content": "What is 2 + 2?"}],
         temperature=0,
         max_tokens=64,
@@ -104,7 +104,7 @@ def test_kendr_adapter_accumulates_multiturn_credits(
         [
             SimpleNamespace(
                 id="first",
-                model="kc-intelligent",
+                model="kendr-intelligent",
                 choices=[
                     SimpleNamespace(message=SimpleNamespace(content="First"))
                 ],
@@ -117,7 +117,7 @@ def test_kendr_adapter_accumulates_multiturn_credits(
             ),
             SimpleNamespace(
                 id="second",
-                model="kc-intelligent",
+                model="kendr-intelligent",
                 choices=[
                     SimpleNamespace(message=SimpleNamespace(content="Second"))
                 ],
@@ -145,14 +145,14 @@ def test_kendr_adapter_accumulates_multiturn_credits(
     monkeypatch.delenv("KENDR_LIVEBENCH_CALL_LOG", raising=False)
     api = {"api_key": "key", "api_base": "https://kendr.org/v1"}
     kendr_chat_completion(
-        "kc-intelligent",
+        "kendr-intelligent",
         [{"role": "user", "content": "First question"}],
         0,
         32,
         api_dict=api,
     )
     _, _, metadata = kendr_chat_completion(
-        "kc-intelligent",
+        "kendr-intelligent",
         [
             {"role": "user", "content": "First question"},
             {"role": "assistant", "content": "First"},
@@ -269,7 +269,7 @@ def test_kendr_adapter_records_provider_failure_without_aborting(
     monkeypatch.setenv("KENDR_LIVEBENCH_CALL_LOG", str(log))
 
     output, output_tokens, metadata = kendr_chat_completion(
-        model="kc-intelligent",
+        model="kendr-intelligent",
         messages=[{"role": "user", "content": "Question"}],
         temperature=0,
         max_tokens=64,
@@ -309,7 +309,7 @@ def test_kendr_adapter_retries_no_credit_failure_with_new_idempotency(
 
     response = SimpleNamespace(
         id="req-recovered",
-        model="kc-intelligent",
+        model="kendr-intelligent",
         choices=[SimpleNamespace(message=SimpleNamespace(content="Recovered"))],
         usage=Dumpable({"prompt_tokens": 4, "completion_tokens": 2}),
         kendr_usage=Dumpable({"credits_charged": "0.02"}),
@@ -333,7 +333,7 @@ def test_kendr_adapter_retries_no_credit_failure_with_new_idempotency(
     monkeypatch.setenv("KENDR_LIVEBENCH_CALL_LOG", str(log))
 
     output, output_tokens, metadata = kendr_chat_completion(
-        model="kc-intelligent",
+        model="kendr-intelligent",
         messages=[{"role": "user", "content": "Question"}],
         temperature=0,
         max_tokens=64,
@@ -376,7 +376,7 @@ def test_kendr_adapter_preserves_failed_routing_metadata(
                 "message": "provider disabled",
                 "details": {
                     "kendr_routing": {
-                        "requested_model": "kc-intelligent",
+                        "requested_model": "kendr-intelligent",
                         "selected_model_alias": "kc-deepseek-v3.2",
                         "attempted_candidates": [
                             {
@@ -406,7 +406,7 @@ def test_kendr_adapter_preserves_failed_routing_metadata(
     monkeypatch.setenv("KENDR_LIVEBENCH_CALL_LOG", str(log))
 
     output, _, metadata = kendr_chat_completion(
-        model="kc-intelligent",
+        model="kendr-intelligent",
         messages=[{"role": "user", "content": "Question"}],
         temperature=0,
         max_tokens=64,

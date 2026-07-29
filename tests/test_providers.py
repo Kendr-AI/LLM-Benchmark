@@ -79,7 +79,7 @@ class FakeKendrClient:
         self.request = request
         return SimpleNamespace(
             request_id="k_request",
-            model="kc-intelligent",
+            model="kendr-intelligent",
             output_text="kendr answer",
             usage={
                 "input_tokens": 90,
@@ -96,7 +96,7 @@ class FakeKendrClient:
 def test_kendr_provider_prefers_reported_billing_and_captures_route() -> None:
     client = FakeKendrClient()
     provider = KendrProvider(
-        model="kc-intelligent",
+        model="kendr-intelligent",
         usd_per_credit=Decimal("0.01"),
         client=client,
     )
@@ -115,4 +115,3 @@ def test_kendr_provider_prefers_reported_billing_and_captures_route() -> None:
     assert result.cost.amount_usd == Decimal("0.0025")
     assert result.cost.source == "provider_reported_credit_micros"
     assert result.cost.rate_card["currency"] == "credits"
-

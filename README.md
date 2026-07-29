@@ -242,7 +242,7 @@ Start with one question before launching a full matrix:
 ```powershell
 .\.venv\Scripts\kendr-livebench.exe run `
   --provider kendr `
-  --model kc-intelligent `
+  --model kendr-intelligent `
   --model-display-name kendr-intelligent-smoke `
   --bench-name live_bench/reasoning/zebra_puzzle `
   --livebench-release-option 2026-06-25 `
