@@ -3,10 +3,22 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import random
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
+
+from kendr_bench.scoring import (
+    answer_failed,
+    bootstrap_ci,
+    category_scores,
+    failed_question_ids,
+    normalized_scores,
+    paired_deltas,
+    percentile,
+    separation_tiers,
+    stable_seed,
+)
 
 
 MODEL_RESEARCH = {
@@ -151,25 +163,33 @@ def markdown_table(headers: list[str], rows: list[list[Any]]) -> str:
     return "\n".join(lines)
 
 
-def percentile(values: list[float], p: float) -> float:
-    ordered = sorted(values)
-    index = (len(ordered) - 1) * p
-    lower = int(index)
-    upper = min(lower + 1, len(ordered) - 1)
-    fraction = index - lower
-    return ordered[lower] * (1 - fraction) + ordered[upper] * fraction
+def ratio(numerator: Any, denominator: Any) -> float | None:
+    """Guarded division. A model that scored zero quality points produces a
+    ``None`` efficiency metric, which used to crash the whole report."""
+    if numerator is None or denominator is None:
+        return None
+    try:
+        divisor = float(denominator)
+    except (TypeError, ValueError):
+        return None
+    if divisor == 0:
+        return None
+    try:
+        return float(numerator) / divisor
+    except (TypeError, ValueError):
+        return None
 
 
-def bootstrap_ci(
-    values: list[float], seed: int, iterations: int = 20_000
-) -> tuple[float, float]:
-    rng = random.Random(seed)
-    n = len(values)
-    means = [
-        sum(values[rng.randrange(n)] for _ in range(n)) / n
-        for _ in range(iterations)
-    ]
-    return percentile(means, 0.025), percentile(means, 0.975)
+def multiplier(value: float | None) -> str:
+    return f"{value:.2f}×" if value is not None else "n/a"
+
+
+def interval_text(interval: dict[str, Any]) -> str:
+    low, high = interval.get("low"), interval.get("high")
+    if low is None or high is None:
+        return "n/a"
+    marker = "*" if interval.get("degenerate") else ""
+    return f"{percent(low)}–{percent(high)}{marker}"
 
 
 def get_answer_call(answer: dict[str, Any]) -> dict[str, Any]:
@@ -189,29 +209,43 @@ def call_error(call: dict[str, Any]) -> str:
     return str(error or "")
 
 
+def error_details(call: dict[str, Any]) -> dict[str, Any]:
+    """Failure detail block, tolerating both error-body shapes.
+
+    The live OpenAI SDK hands back an already-unwrapped body, while older
+    captures keep the outer ``error`` envelope.
+    """
+    error = call.get("error")
+    if not isinstance(error, dict):
+        return {}
+    body = error.get("body")
+    if not isinstance(body, dict):
+        return {}
+    for candidate in (
+        body.get("details"),
+        (body.get("error") or {}).get("details")
+        if isinstance(body.get("error"), dict)
+        else None,
+    ):
+        if isinstance(candidate, dict):
+            return candidate
+    return {}
+
+
 def call_routing(call: dict[str, Any]) -> dict[str, Any]:
     routing = call.get("kendr_routing")
     if routing:
         return routing
-    error = call.get("error")
-    if not isinstance(error, dict):
-        return {}
-    return (
-        error.get("body", {})
-        .get("details", {})
-        .get("kendr_routing", {})
-    )
+    routing = error_details(call).get("kendr_routing")
+    return routing if isinstance(routing, dict) else {}
 
 
 def call_usage(call: dict[str, Any]) -> dict[str, Any]:
     usage = call.get("usage")
     if usage:
         return usage
-    error = call.get("error")
-    if not isinstance(error, dict):
-        return {}
-    attempts = error.get("body", {}).get("details", {}).get("attempts", [])
-    if not attempts:
+    attempts = error_details(call).get("attempts")
+    if not isinstance(attempts, list) or not attempts:
         return {}
     provider_usage = attempts[-1].get("usage", {})
     return {
@@ -234,7 +268,20 @@ def find_runs(
             summary = read_json(summary_path)
             by_requested[summary["requested_model"]] = (run_dir, summary)
     result = {}
+    missing = [
+        spec["label"]
+        for spec in manifest["models"]
+        if spec["model"] not in by_requested
+    ]
+    if missing:
+        print(
+            "Skipping models with no run directory: "
+            + ", ".join(missing),
+            file=sys.stderr,
+        )
     for spec in manifest["models"]:
+        if spec["model"] not in by_requested:
+            continue
         run_dir, summary = by_requested[spec["model"]]
         result[spec["key"]] = {
             "spec": spec,
@@ -250,10 +297,21 @@ def find_runs(
 def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     if not rows:
         return
+    # Underscore-prefixed keys are intermediates (per-question score maps) used
+    # for paired tests, not published columns.
+    published = [
+        {key: value for key, value in row.items() if not key.startswith("_")}
+        for row in rows
+    ]
+    fieldnames: list[str] = []
+    for row in published:
+        for key in row:
+            if key not in fieldnames:
+                fieldnames.append(key)
     with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, restval="")
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(published)
 
 
 def build_metrics_rows(
@@ -267,9 +325,14 @@ def build_metrics_rows(
         reliability = summary["reliability"]
         latency = summary["latency"]["end_to_end_ms"]
         raw_success = sum(not bool(call.get("error")) for call in calls)
-        group = summary["workspace_snapshot"]["standard_group_scores"]
-        scores = [float(j["score"]) for j in data["judgments"]]
-        low, high = bootstrap_ci(scores, seed=1000 + len(rows))
+        # Resample the same failure-normalized scores that produced
+        # quality_score. Bootstrapping the raw judgments instead described a
+        # different dataset, because some graders award format credit to the
+        # literal $ERROR$ sentinel.
+        failed_ids = failed_question_ids(data["answers"])
+        scores = normalized_scores(data["judgments"], failed_ids)
+        interval = bootstrap_ci(scores, seed=stable_seed(key))
+        capabilities = category_scores(data["judgments"], failed_ids)
         rows.append(
             {
                 "panel_key": key,
@@ -278,17 +341,24 @@ def build_metrics_rows(
                 "requested_model": spec["model"],
                 "questions": quality["questions_scored"],
                 "quality_score": quality["objective_score_mean"],
-                "quality_ci95_low": low,
-                "quality_ci95_high": high,
+                "quality_ci95_low": interval["low"],
+                "quality_ci95_high": interval["high"],
+                "quality_ci95_degenerate": interval["degenerate"],
+                "quality_ci95_distinct_resample_means": interval[
+                    "distinct_resample_means"
+                ],
+                "tier": None,
                 "quality_points": quality["quality_points"],
-                "data_analysis_score": float(group["data_analysis"]) / 100,
-                "instruction_following_score": float(
-                    group["instruction_following"]
-                )
-                / 100,
-                "language_score": float(group["language"]) / 100,
-                "math_score": float(group["math"]) / 100,
-                "reasoning_score": float(group["reasoning"]) / 100,
+                # Computed from normalized judgments, not LiveBench's raw
+                # group CSV, so this table cannot disagree with the overall
+                # quality column the way the two published tables used to.
+                "data_analysis_score": capabilities.get("data_analysis"),
+                "instruction_following_score": capabilities.get(
+                    "instruction_following"
+                ),
+                "language_score": capabilities.get("language"),
+                "math_score": capabilities.get("math"),
+                "reasoning_score": capabilities.get("reasoning"),
                 "final_successes": reliability["successful_answers"],
                 "final_failures": reliability["failed_answers"],
                 "final_reliability": reliability["answer_success_rate"],
@@ -334,9 +404,43 @@ def build_metrics_rows(
                     sort_keys=True,
                 ),
                 "run_dir": str(data["run_dir"]),
+                "_question_scores": {
+                    str(judgment.get("question_id")): (
+                        0.0
+                        if str(judgment.get("question_id")) in failed_ids
+                        else float(judgment["score"])
+                    )
+                    for judgment in data["judgments"]
+                    if judgment.get("score") not in (None, -1)
+                },
             }
         )
-    rows.sort(key=lambda row: row["quality_score"], reverse=True)
+
+    def order_key(row: dict[str, Any]) -> tuple[float, float]:
+        quality = row.get("quality_score")
+        cost = row.get("cost_usd")
+        return (
+            -float(quality) if quality is not None else float("inf"),
+            float(cost) if cost is not None else float("inf"),
+        )
+
+    # Same rule as the leaderboard writer. These two artifacts used to sort by
+    # different keys and could print different rank orders on a tie.
+    rows.sort(key=order_key)
+    tiers = separation_tiers(
+        [
+            (
+                row["panel_key"],
+                {
+                    "low": row["quality_ci95_low"],
+                    "high": row["quality_ci95_high"],
+                },
+            )
+            for row in rows
+        ]
+    )
+    for row in rows:
+        row["tier"] = tiers.get(row["panel_key"])
     return rows
 
 
@@ -348,7 +452,9 @@ def build_question_rows(
         judgments = {j["question_id"]: j for j in data["judgments"]}
         for answer in data["answers"]:
             qid = answer["question_id"]
-            judgment = judgments[qid]
+            # An answer with no judgment is exactly what a silently-dropped
+            # provider failure looks like, so it is recorded rather than raising.
+            judgment = judgments.get(qid, {})
             call = get_answer_call(answer)
             routing = call_routing(call)
             usage = call_usage(call)
@@ -360,11 +466,12 @@ def build_question_rows(
                     "panel_key": key,
                     "model": data["spec"]["label"],
                     "question_id": qid,
-                    "category": judgment["category"],
-                    "task": judgment["task"],
-                    "score": judgment["score"],
-                    "answer_error": "$ERROR$"
-                    in str(answer.get("choices", [])),
+                    "category": judgment.get("category"),
+                    "task": judgment.get("task"),
+                    "score": judgment.get("score"),
+                    "graded": bool(judgment)
+                    and judgment.get("score") not in (None, -1),
+                    "answer_error": answer_failed(answer),
                     "input_tokens": usage.get(
                         "prompt_tokens", answer.get("total_input_tokens")
                     ),
@@ -394,7 +501,13 @@ def build_question_rows(
                     ),
                 }
             )
-    rows.sort(key=lambda row: (row["panel_key"], row["category"], row["question_id"]))
+    rows.sort(
+        key=lambda row: (
+            row["panel_key"],
+            str(row["category"] or ""),
+            row["question_id"],
+        )
+    )
     return rows
 
 
@@ -447,33 +560,79 @@ def detailed_report(
     questions: list[dict[str, Any]],
     attempts: list[dict[str, Any]],
 ) -> str:
+    def find(panel_key: str) -> dict[str, Any] | None:
+        return next(
+            (row for row in metrics if row["panel_key"] == panel_key), None
+        )
+
     leader = metrics[0]
-    sol = next(row for row in metrics if row["panel_key"] == "openai-sol")
-    kendr = next(
-        row for row in metrics if row["panel_key"] == "kendr-intelligent"
+    sol = find("openai-sol")
+    kendr = find("kendr-intelligent")
+    total_input = sum(int(row["input_tokens"] or 0) for row in metrics)
+    total_output = sum(int(row["output_tokens"] or 0) for row in metrics)
+    total_cost = sum(
+        float(row["cost_usd"]) for row in metrics if row["cost_usd"] is not None
     )
-    total_input = sum(int(row["input_tokens"]) for row in metrics)
-    total_output = sum(int(row["output_tokens"]) for row in metrics)
-    total_cost = sum(float(row["cost_usd"]) for row in metrics)
     raw_failures = sum(not row["success"] for row in attempts)
+    seconds = lambda value: (
+        number(float(value) / 1000, 2) if value is not None else "n/a"
+    )
     overall_rows = []
     for rank, row in enumerate(metrics, 1):
         overall_rows.append(
             [
                 rank,
+                row["tier"] or "n/a",
                 row["model"],
                 percent(row["quality_score"]),
-                f"{percent(row['quality_ci95_low'])}–{percent(row['quality_ci95_high'])}",
+                interval_text(
+                    {
+                        "low": row["quality_ci95_low"],
+                        "high": row["quality_ci95_high"],
+                        "degenerate": row["quality_ci95_degenerate"],
+                    }
+                ),
                 percent(row["final_reliability"]),
                 percent(row["raw_attempt_reliability"]),
                 f"{row['input_tokens']:,}",
                 f"{row['output_tokens']:,}",
                 money(row["cost_usd"]),
-                number(row["p50_latency_ms"] / 1000, 2),
-                number(row["p95_latency_ms"] / 1000, 2),
+                seconds(row["p50_latency_ms"]),
+                seconds(row["p95_latency_ms"]),
                 percent(row["output_cap_compliance"]),
             ]
         )
+    pair_rows = []
+    for higher, lower in zip(metrics, metrics[1:]):
+        deltas = paired_deltas(
+            higher.get("_question_scores") or {},
+            lower.get("_question_scores") or {},
+        )
+        if not deltas:
+            continue
+        interval = bootstrap_ci(
+            deltas,
+            seed=stable_seed(
+                f"{higher['panel_key']}|{lower['panel_key']}"
+            ),
+        )
+        low, high = interval["low"], interval["high"]
+        separated = low is not None and high is not None and (
+            low > 0 or high < 0
+        )
+        pair_rows.append(
+            [
+                higher["model"],
+                lower["model"],
+                f"{sum(deltas) / len(deltas) * 100:+.1f} pp",
+                f"{low * 100:+.1f} to {high * 100:+.1f} pp",
+                f"{sum(d > 0 for d in deltas)}/"
+                f"{sum(d < 0 for d in deltas)}/"
+                f"{sum(d == 0 for d in deltas)}",
+                "yes" if separated else "no",
+            ]
+        )
+    separated_pairs = sum(row[5] == "yes" for row in pair_rows)
     capability_rows = [
         [
             row["model"],
@@ -488,12 +647,19 @@ def detailed_report(
     efficiency_rows = []
     for row in metrics:
         cost_eff = (
-            float(row["quality_points_per_usd"])
-            / float(sol["quality_points_per_usd"])
+            ratio(
+                row["quality_points_per_usd"], sol["quality_points_per_usd"]
+            )
+            if sol
+            else None
         )
         token_eff = (
-            float(sol["tokens_per_quality_point"])
-            / float(row["tokens_per_quality_point"])
+            ratio(
+                sol["tokens_per_quality_point"],
+                row["tokens_per_quality_point"],
+            )
+            if sol
+            else None
         )
         efficiency_rows.append(
             [
@@ -501,8 +667,8 @@ def detailed_report(
                 number(row["tokens_per_quality_point"], 0),
                 money(row["usd_per_quality_point"]),
                 number(row["quality_points_per_usd"], 1),
-                f"{token_eff:.2f}×",
-                f"{cost_eff:.2f}×",
+                multiplier(token_eff),
+                multiplier(cost_eff),
             ]
         )
     error_rows = []
@@ -522,59 +688,58 @@ def detailed_report(
             )
     if not error_rows:
         error_rows = [["None", "—", "—", "—", "—", "No raw failures"]]
+    # Share is over routed attempts, not final answers. Dividing a per-call
+    # counter by an answer count only summed to 100% while failed calls were
+    # being discarded.
+    route_counts = (
+        json.loads(kendr["route_distribution"]) if kendr else {}
+    )
+    routed_total = sum(route_counts.values())
     route_rows = [
-        [route, count, percent(count / kendr["final_successes"])]
-        for route, count in json.loads(kendr["route_distribution"]).items()
+        [route, count, percent(ratio(count, routed_total))]
+        for route, count in sorted(route_counts.items())
     ]
-    o5 = {
-        row["question_id"]: row
-        for row in questions
-        if row["panel_key"] == "claude-opus-5"
-    }
-    o48 = {
-        row["question_id"]: row
-        for row in questions
-        if row["panel_key"] == "claude-opus-4-8"
-    }
-    paired = []
-    deltas = []
-    for qid in sorted(o5.keys() & o48.keys(), key=lambda q: (o5[q]["task"], q)):
-        delta = float(o5[qid]["score"]) - float(o48[qid]["score"])
-        deltas.append(delta)
-        paired.append(
-            [
-                o5[qid]["task"],
-                qid[:12],
-                f"{float(o5[qid]['score']):.3f}",
-                f"{float(o48[qid]['score']):.3f}",
-                f"{delta:+.3f}",
-            ]
-        )
-    delta_low, delta_high = bootstrap_ci(deltas, seed=5408)
-    o5_wins = sum(delta > 0 for delta in deltas)
-    o48_wins = sum(delta < 0 for delta in deltas)
-    ties = sum(delta == 0 for delta in deltas)
+    opus_section = _same_family_section(
+        metrics, questions, "claude-opus-5", "claude-opus-4-8"
+    )
     lines = [
         f"# Detailed benchmark report: {manifest['matrix_id']}",
         "",
         "## Executive result",
         "",
         (
-            f"**{leader['model']} ranked first on this fixed LiveBench slice "
-            f"at {percent(leader['quality_score'])}.** It used "
-            f"{leader['total_tokens']:,} captured tokens, cost "
+            f"**{leader['model']} placed first on this fixed LiveBench slice "
+            f"at {percent(leader['quality_score'])}"
+            f" ({interval_text({'low': leader['quality_ci95_low'], 'high': leader['quality_ci95_high'], 'degenerate': leader['quality_ci95_degenerate']})}).** "
+            f"It used {leader['total_tokens']:,} captured tokens, cost "
             f"{money(leader['cost_usd'])}, and had p50/p95 end-to-end latency "
-            f"of {leader['p50_latency_ms'] / 1000:.2f}s/"
-            f"{leader['p95_latency_ms'] / 1000:.2f}s."
+            f"of {seconds(leader['p50_latency_ms'])}s/"
+            f"{seconds(leader['p95_latency_ms'])}s."
         ),
         "",
         (
-            f"Kendr Intelligent delivered {percent(kendr['final_reliability'])} "
-            f"final-answer reliability, but {percent(kendr['raw_attempt_reliability'])} "
-            f"raw-attempt reliability because one failed call was retried. Its "
-            f"requested 2,048-token cap compliance was "
-            f"{percent(kendr['output_cap_compliance'])}; this is a separate "
-            "OpenAI-compatibility issue, not a timeout recurrence."
+            f"Of {len(pair_rows)} adjacent rank gaps, {separated_pairs} are "
+            "separated at 95% confidence on a paired per-question test. Ranks "
+            "whose gap is not separated should be read as a tie."
+            if pair_rows
+            else "Only one endpoint was measured, so no ranking claim is made."
+        ),
+        "",
+        (
+            (
+                f"{kendr['model']} delivered "
+                f"{percent(kendr['final_reliability'])} final-answer "
+                f"reliability against "
+                f"{percent(kendr['raw_attempt_reliability'])} raw-attempt "
+                f"reliability, because a failed call was retried. Its "
+                f"compliance with the requested "
+                f"{manifest['max_tokens']:,}-token cap was "
+                f"{percent(kendr['output_cap_compliance'])}: where that is "
+                "below 100%, its token and cost figures are not directly "
+                "comparable to a fully compliant endpoint's."
+            )
+            if kendr
+            else "Kendr Intelligent was not part of this panel."
         ),
         "",
         (
@@ -584,13 +749,14 @@ def detailed_report(
             f"and {money(total_cost)} in measured API cost."
         ),
         "",
-        "This is a 15-question, one-generation-per-model research slice. It is useful for controlled comparison but is not a statistically definitive claim about general model capability.",
+        "This is a one-generation-per-model research slice. It is useful for controlled comparison but is not a statistically definitive claim about general model capability.",
         "",
         "## Overall leaderboard",
         "",
         markdown_table(
             [
                 "#",
+                "Tier",
                 "Model/system",
                 "Quality",
                 "Question-bootstrap 95% CI",
@@ -606,7 +772,26 @@ def detailed_report(
             overall_rows,
         ),
         "",
-        "The interval resamples these 15 questions only. It does not include generation-to-generation variance or benchmark-selection uncertainty.",
+        "The interval resamples this question set only. It does not include generation-to-generation variance or benchmark-selection uncertainty. A `*` marks an interval whose bound is censored by the score scale or built from too few distinct resample values to read as an estimated limit — at this sample size a bound printed as `100.0%` means the resampled mean reached the ceiling, not that the endpoint is estimated to score perfectly.",
+        "",
+        "Models sharing a tier are not separated at 95% confidence. Ranks are printed in full for traceability only.",
+        "",
+        "## Does each rank gap survive a paired test?",
+        "",
+        markdown_table(
+            [
+                "Higher rank",
+                "Lower rank",
+                "Mean difference",
+                "95% CI",
+                "W/L/T",
+                "Separated at 95%?",
+            ],
+            pair_rows
+            or [["n/a", "n/a", "n/a", "n/a", "n/a", "no pairs to compare"]],
+        ),
+        "",
+        "Each row resamples per-question differences between two adjacent ranks. This is the only test that uses the fact that both endpoints answered the same questions; the marginal intervals above are a weaker check.",
         "",
         "## Quality by capability",
         "",
@@ -655,60 +840,42 @@ def detailed_report(
         ),
         "",
         (
-            "The timeout fix held: no raw call failed with HTTP 504. The Kendr "
-            "failure was returned after the selected provider generated exactly "
-            "4,096 tokens and Kendr rejected the truncated result; LiveBench "
-            "retried it successfully. Consequently, final-answer reliability "
-            "and raw-attempt reliability must be reported separately."
+            f"Retried attempts are logged separately from final answers, so "
+            f"final-answer and raw-attempt reliability are reported as distinct "
+            f"numbers. The largest observed output across the panel was "
+            f"{max((int(row['max_output_tokens_observed'] or 0) for row in metrics), default=0):,} "
+            f"tokens against a requested cap of {manifest['max_tokens']:,}; a "
+            "rejected over-cap generation is counted as a cap violation even "
+            "though it produced no answer."
         ),
         "",
         (
-            "Root cause in the inspected KendrWeb source: `/v1/chat/completions` "
-            "deserializes `InferenceRequest`, which accepts `max_output_tokens` "
-            "but not the OpenAI-compatible `max_tokens` sent by the harness. "
-            "The missing value falls back to `DEFAULT_MAX_OUTPUT_TOKENS = 4096`. "
-            "The same contract also has no `temperature` or `reasoning_effort` "
-            "field, so those controls are not normalized across Kendr-routed models."
+            "Known contract gap in the inspected KendrWeb source: "
+            "`/v1/chat/completions` deserializes `InferenceRequest`, which "
+            "accepts `max_output_tokens` but not the OpenAI-compatible "
+            "`max_tokens`, and an absent value falls back to "
+            "`DEFAULT_MAX_OUTPUT_TOKENS = 4096`. The harness now sends both "
+            "keys so the requested cap binds on either contract. Runs recorded "
+            "before that change show cap compliance below 100% and must be "
+            "re-measured before their token and cost axes are treated as "
+            "controlled. `temperature` and `reasoning_effort` are still absent "
+            "from the contract, so those controls remain unnormalized across "
+            "Kendr-routed models."
         ),
         "",
         "## Kendr Intelligent routing",
         "",
-        markdown_table(["Selected route", "Final answers", "Share"], route_rows),
-        "",
-        "Kendr is a routed system, so its score measures the combined router-plus-model behavior, latency, and billing—not one foundation model.",
-        "",
-        "## Why Opus 5 scored below Opus 4.8 here",
-        "",
-        (
-            f"Opus 5 scored {percent(next(r for r in metrics if r['panel_key'] == 'claude-opus-5')['quality_score'])}; "
-            f"Opus 4.8 scored {percent(next(r for r in metrics if r['panel_key'] == 'claude-opus-4-8')['quality_score'])}. "
-            f"The paired mean difference was {sum(deltas) / len(deltas) * 100:+.1f} "
-            f"percentage points, with a question-bootstrap 95% interval of "
-            f"{delta_low * 100:+.1f} to {delta_high * 100:+.1f} points. "
-            f"Opus 5 won {o5_wins} questions, Opus 4.8 won {o48_wins}, and "
-            f"{ties} tied."
-        ),
-        "",
         markdown_table(
-            ["Task", "Question ID", "Opus 5", "Opus 4.8", "O5 − O4.8"],
-            paired,
+            ["Selected route", "Routed attempts", "Share"], route_rows
         ),
         "",
-        (
-            "This is possible without contradicting vendor aggregate claims. "
-            "The slice is small, narrow, and sampled once. More importantly, "
-            "provider-effective reasoning was not normalized: Anthropic documents "
-            "Opus 5 thinking as on by default, whereas Opus 4.8 adaptive thinking "
-            "is off unless explicitly requested. Kendr's chat contract does not "
-            "expose those controls. The measured gap is concentrated in the "
-            "table-join and summarization tasks, while both models were perfect "
-            "on language, math, and reasoning in this slice."
-        ),
+        "Kendr is a routed system, so its score measures the combined router-plus-model behavior, latency, and billing—not one foundation model. The router also consumes tokens of its own on every request; those are inside the reported credits and therefore inside the cost, but they are not counted in its token totals.",
         "",
+        *opus_section,
         "## Artifact map",
         "",
         "- `model-metrics.csv`: one row per model/system with quality, cost, tokens, latency, reliability, cap, and capability metrics.",
-        "- `question-level-results.csv`: all 135 final answers joined to objective judgments and call telemetry.",
+        f"- `question-level-results.csv`: all {len(questions)} final answers joined to objective judgments and call telemetry.",
         "- `raw-attempts.csv`: every provider attempt, including retries and errors.",
         "- `leaderboard.md`, `leaderboard.csv`, `leaderboard.json`: the standard matrix outputs.",
         "- `runs/<run-id>/`: raw calls, final answers, judgments, task/group scores, and per-model reports.",
@@ -716,17 +883,134 @@ def detailed_report(
         "## Conclusion",
         "",
         (
-            f"On the measured workload, Kendr led quality and was "
-            f"{float(kendr['quality_points_per_usd']) / float(sol['quality_points_per_usd']):.2f}× "
-            "as cost-efficient as Sol by quality points per captured USD, but it "
-            "was slower and failed the requested output-cap contract on some "
-            "successful calls. The timeout regression is resolved; token-control "
-            "compatibility and reasoning-parameter normalization are the next "
-            "fairness and reliability fixes."
+            (
+                f"On the measured workload, {leader['model']} placed first on "
+                f"quality"
+                + (
+                    (
+                        f" and {kendr['model']} was "
+                        f"{multiplier(ratio(kendr['quality_points_per_usd'], sol['quality_points_per_usd']))} "
+                        "as cost-efficient as Sol by quality points per "
+                        "measured USD"
+                    )
+                    if kendr
+                    and sol
+                    and ratio(
+                        kendr["quality_points_per_usd"],
+                        sol["quality_points_per_usd"],
+                    )
+                    is not None
+                    else ""
+                )
+                + ". That cost ratio compares a Kendr invoice against OpenAI "
+                "list price, so it is a buyer-facing ratio rather than an "
+                "inference-cost ratio. Output-cap compliance and "
+                "reasoning-parameter normalization remain the open fairness "
+                "items; until both hold at 100%, this is an "
+                "endpoint-as-served comparison."
+            )
         ),
         "",
     ]
     return "\n".join(lines)
+
+
+def _same_family_section(
+    metrics: list[dict[str, Any]],
+    questions: list[dict[str, Any]],
+    left_key: str,
+    right_key: str,
+) -> list[str]:
+    """Paired write-up for two related models, emitted only if both ran.
+
+    Kept deliberately non-causal: with a handful of informative questions the
+    honest statement is where the difference appeared, not why.
+    """
+    left = next((row for row in metrics if row["panel_key"] == left_key), None)
+    right = next(
+        (row for row in metrics if row["panel_key"] == right_key), None
+    )
+    if left is None or right is None:
+        return []
+    left_scores = left.get("_question_scores") or {}
+    right_scores = right.get("_question_scores") or {}
+    deltas = paired_deltas(left_scores, right_scores)
+    if not deltas:
+        return []
+    interval = bootstrap_ci(
+        deltas, seed=stable_seed(f"{left_key}|{right_key}")
+    )
+    low, high = interval["low"], interval["high"]
+    separated = low > 0 or high < 0
+    tasks = {
+        row["question_id"]: row.get("task")
+        for row in questions
+        if row["panel_key"] in {left_key, right_key}
+    }
+    rows = []
+    for question_id in sorted(
+        left_scores.keys() & right_scores.keys(),
+        key=lambda q: (str(tasks.get(q) or ""), q),
+    ):
+        delta = left_scores[question_id] - right_scores[question_id]
+        rows.append(
+            [
+                tasks.get(question_id) or "n/a",
+                question_id[:12],
+                f"{left_scores[question_id]:.3f}",
+                f"{right_scores[question_id]:.3f}",
+                f"{delta:+.3f}",
+            ]
+        )
+    informative = sum(delta != 0 for delta in deltas)
+    differing_tasks = sorted(
+        {
+            str(tasks.get(question_id) or "unknown")
+            for question_id in left_scores.keys() & right_scores.keys()
+            if left_scores[question_id] != right_scores[question_id]
+        }
+    )
+    return [
+        f"## {left['model']} versus {right['model']}",
+        "",
+        (
+            f"{left['model']} scored {percent(left['quality_score'])} and "
+            f"{right['model']} scored {percent(right['quality_score'])}. The "
+            f"paired mean difference was {sum(deltas) / len(deltas) * 100:+.1f} "
+            f"percentage points with a 95% interval of {low * 100:+.1f} to "
+            f"{high * 100:+.1f} points, so the two are "
+            + (
+                "separated at 95% confidence."
+                if separated
+                else "**not separated at 95% confidence**."
+            )
+            + f" {informative} of {len(deltas)} questions distinguished them at "
+            f"all ({sum(d > 0 for d in deltas)} to "
+            f"{sum(d < 0 for d in deltas)}), so this comparison rests on a very "
+            "small number of informative items."
+        ),
+        "",
+        markdown_table(
+            [
+                "Task",
+                "Question ID",
+                left["model"],
+                right["model"],
+                "Difference",
+            ],
+            rows,
+        ),
+        "",
+        (
+            "The difference appeared in "
+            + (", ".join(differing_tasks) if differing_tasks else "no task")
+            + ". No cause is attributed here: reasoning and sampling "
+            "parameters were not normalized across these endpoints, the slice "
+            "is small and sampled once, and an unseparated interval cannot "
+            "support a claim about which model is stronger in general."
+        ),
+        "",
+    ]
 
 
 def methodology_document(
@@ -734,9 +1018,19 @@ def methodology_document(
     manifest: dict[str, Any],
     panel: dict[str, dict[str, Any]],
 ) -> str:
+    unknown = {
+        "architecture": "Not researched",
+        "context": "Not researched",
+        "max_output": "Not researched",
+        "knowledge": "Not researched",
+        "modes": "Not researched",
+        "pricing": "Not researched",
+        "source": "n/a",
+        "notes": "No curated research entry for this panel key.",
+    }
     research_rows = []
     for spec in manifest["models"]:
-        research = MODEL_RESEARCH[spec["key"]]
+        research = MODEL_RESEARCH.get(spec["key"], unknown)
         research_rows.append(
             [
                 spec["label"],
@@ -750,7 +1044,7 @@ def methodology_document(
         )
     profile_sections = []
     for spec in manifest["models"]:
-        research = MODEL_RESEARCH[spec["key"]]
+        research = MODEL_RESEARCH.get(spec["key"], unknown)
         profile_sections.extend(
             [
                 f"### {spec['label']}",
@@ -769,6 +1063,16 @@ def methodology_document(
             ]
         )
     tasks = [task.rsplit("/", 1)[-1] for task in manifest["tasks"]]
+    # Read the pin from what the runs actually recorded rather than repeating a
+    # literal that can drift away from the code.
+    revision = next(
+        (
+            str(data["summary"]["livebench"]["revision"])
+            for data in panel.values()
+            if data["summary"].get("livebench", {}).get("revision")
+        ),
+        "unrecorded",
+    )
     lines = [
         f"# Methodology and model documentation: {manifest['matrix_id']}",
         "",
@@ -778,7 +1082,7 @@ def methodology_document(
             ["Parameter", "Value"],
             [
                 ["LiveBench repository", "https://github.com/LiveBench/LiveBench"],
-                ["Pinned commit", "4355e9b04222745ccc02a2661d1deebe767a85a2"],
+                ["Pinned commit", revision],
                 ["Release", manifest["livebench_release"]],
                 ["Tasks", ", ".join(tasks)],
                 ["Questions per task", manifest["questions_per_task"]],
@@ -935,13 +1239,30 @@ def methodology_document(
     return "\n".join(lines)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Rebuild the detailed report and methodology document for a "
+            "completed matrix. Makes no API calls."
+        )
+    )
     parser.add_argument("matrix_root", type=Path)
     args = parser.parse_args()
     root = args.matrix_root.resolve()
-    manifest = read_json(root / "manifest.json")
+    manifest_path = root / "manifest.json"
+    if not manifest_path.is_file():
+        print(f"Matrix manifest not found: {manifest_path}", file=sys.stderr)
+        return 1
+    manifest = read_json(manifest_path)
+    if not (root / "runs").is_dir():
+        print(f"No runs directory under {root}", file=sys.stderr)
+        return 1
     panel = find_runs(root, manifest)
+    if not panel:
+        print(
+            f"No usable runs found under {root / 'runs'}", file=sys.stderr
+        )
+        return 1
     metrics = build_metrics_rows(panel)
     questions = build_question_rows(panel, manifest["max_tokens"])
     attempts = build_attempt_rows(panel, manifest["max_tokens"])
@@ -958,7 +1279,8 @@ def main() -> None:
     )
     print(root / "detailed-report.md")
     print(root / "methodology-and-model-documentation.md")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

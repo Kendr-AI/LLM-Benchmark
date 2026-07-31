@@ -79,6 +79,55 @@ def _decimal(value: Any) -> Decimal | None:
         return None
 
 
+def _failed_attempt_usage(details: Mapping[str, Any]) -> dict[str, Any]:
+    """Recover provider-reported usage from a rejected Kendr attempt.
+
+    A truncation rejection still generated (and forwarded) tokens. Reporting
+    them as zero understates output volume and flatters tokens-per-quality-point
+    for whichever endpoint failed.
+    """
+    attempts = details.get("attempts")
+    if not isinstance(attempts, list):
+        return {}
+    for attempt in reversed(attempts):
+        if not isinstance(attempt, Mapping):
+            continue
+        usage = attempt.get("usage")
+        if not isinstance(usage, Mapping):
+            continue
+        input_tokens = usage.get("input_tokens")
+        output_tokens = usage.get("output_tokens")
+        if input_tokens is None and output_tokens is None:
+            continue
+        return {
+            "prompt_tokens": int(input_tokens or 0),
+            "completion_tokens": int(output_tokens or 0),
+            "total_tokens": int(input_tokens or 0) + int(output_tokens or 0),
+        }
+    return {}
+
+
+def recovered_call_usage(call: Mapping[str, Any]) -> dict[str, Any]:
+    """Usage for a logged call, reconstructed from its failure body if absent.
+
+    Lets ``summarize`` and ``--rebuild`` correct runs captured before failed
+    attempts carried usage of their own, since the provider report was always
+    preserved inside the persisted error body.
+    """
+    usage = call.get("usage")
+    if isinstance(usage, Mapping) and usage:
+        return dict(usage)
+    error = call.get("error")
+    if not isinstance(error, Mapping):
+        return {}
+    body = error.get("body")
+    if not isinstance(body, Mapping):
+        return {}
+    return _failed_attempt_usage(
+        _nested_mapping(body, ("details",), ("error", "details"))
+    )
+
+
 def _credits_from_usage(usage: Mapping[str, Any]) -> Decimal | None:
     for key in ("credits_charged", "total_credits"):
         credits = _decimal(usage.get(key))
@@ -239,6 +288,15 @@ def kendr_chat_completion(
     request_kwargs = {
         key: value for key, value in request_kwargs.items() if value is not None
     }
+    # Kendr's InferenceRequest recognizes `max_output_tokens`, not the
+    # OpenAI-compatible `max_tokens`, and silently falls back to its 4,096
+    # default. Sending both makes the requested cap bind on either contract, so
+    # the panel is actually held to one output budget.
+    effective_cap = request_kwargs.get(
+        "max_tokens", request_kwargs.get("max_completion_tokens", max_tokens)
+    )
+    extra_body = dict(request_kwargs.pop("extra_body", None) or {})
+    extra_body.setdefault("max_output_tokens", effective_cap)
 
     client = OpenAI(
         api_key=api_dict["api_key"],
@@ -261,13 +319,20 @@ def kendr_chat_completion(
                 messages=messages,
                 stream=False,
                 extra_headers={"Idempotency-Key": idempotency_key},
+                extra_body=extra_body,
                 **request_kwargs,
             )
             break
         except Exception as exc:
             latency_ms = (time.perf_counter() - started) * 1000
             error_body = _exception_body(exc)
-            error_details = _nested_mapping(error_body, ("error", "details"))
+            # The OpenAI SDK already unwraps the outer "error" envelope, so the
+            # live body is flat. Older captures and some proxies keep the
+            # envelope, so both shapes are accepted; reading only the nested one
+            # silently discarded all failure telemetry.
+            error_details = _nested_mapping(
+                error_body, ("details",), ("error", "details")
+            )
             kendr_routing = _nested_mapping(
                 error_body,
                 ("kendr_routing",),
@@ -289,6 +354,7 @@ def kendr_chat_completion(
             will_retry = (
                 retry_reason is not None and len(prior_calls) < safe_retries
             )
+            failed_usage = _failed_attempt_usage(error_details)
             call = {
                 "run_id": os.getenv(KENDR_LIVEBENCH_RUN_ID),
                 "provider": "kendr",
@@ -300,9 +366,15 @@ def kendr_chat_completion(
                     "temperature": temperature,
                     "max_tokens": max_tokens,
                     **copy.deepcopy(request_kwargs),
+                    **copy.deepcopy(extra_body),
                 },
                 "output_text": "$ERROR$",
-                "usage": {},
+                "usage": failed_usage,
+                "usage_source": (
+                    "failed_attempt_provider_report"
+                    if failed_usage
+                    else "unavailable"
+                ),
                 "kendr_usage": {},
                 "kendr_credits": None,
                 "kendr_cost_usd": None,
@@ -376,6 +448,7 @@ def kendr_chat_completion(
             "temperature": temperature,
             "max_tokens": max_tokens,
             **copy.deepcopy(request_kwargs),
+            **copy.deepcopy(extra_body),
         },
         "output_text": output,
         "usage": usage,

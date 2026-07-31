@@ -15,45 +15,83 @@ results below are from this project's own fixed, instrumented slice.
 > [!IMPORTANT]
 > This is an observed endpoint-as-served comparison, not a table of vendor
 > claims and not a reproduction of the full public LiveBench leaderboard.
-> Every model received the same 15-question slice and requested output cap.
+> Every model received the same 15-question slice and the same *requested*
+> output cap; not every endpoint honored it. The published artifacts under
+> `results/` are gitignored, so a third party cannot verify these figures
+> without re-running a paid matrix with their own credentials.
 
 ## Latest verified report
 
 **Run:** `20260727T214108Z-all-models-timeout-fixed-594145d3`
 
-Kendr Intelligent ranked first on this slice at **89.1% quality** and cost
+Kendr Intelligent placed first on this slice at **89.1% quality** and cost
 **$0.027234**. It was **4.71x as cost-efficient as direct OpenAI GPT-5.6 Sol**
-by quality points per measured USD. It used more tokens and had higher latency
-than Sol, so the result should be read across quality, cost, usage, latency,
-and reliability rather than as a quality-only ranking.
+by quality points per measured USD.
+
+> [!WARNING]
+> **No adjacent rank gap in this table is separated at 95% confidence.** On a
+> paired per-question test, 0 of 8 neighbouring pairs clear zero, including
+> first versus second. Read the ordering as one plausible arrangement of a
+> nine-way near-tie, not as a ranking. Only Llama 4 Maverick separates from the
+> leader at all.
+
+Kendr also used more tokens and had higher latency than Sol, and did not honor
+the requested output cap on 4 of 16 attempts, so its token axis is not directly
+comparable to a fully compliant endpoint's.
 
 The complete pass produced:
 
 - 9 models or routed systems;
 - 5 capabilities and 15 questions per model;
 - 135 final answers from 136 raw provider attempts;
-- 97,189 input tokens and 75,959 output tokens;
-- 173,148 total captured tokens;
+- 97,372 input tokens and 80,055 output tokens;
+- 177,427 total captured tokens;
 - $0.775727 total measured API cost;
 - no final-answer failures and no HTTP 504 timeout failures.
 
 ### Overall leaderboard
 
-| Rank | Model/system | Quality (95% question-bootstrap CI) | Input / output tokens | Cost | p50 / p95 latency | Final / raw reliability | Cap compliance |
-| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | Kendr Intelligent | 89.1% (76.0%-100.0%) | 12,232 / 15,203 | $0.027234 | 9.70s / 60.20s | 100.0% / 93.8% | 80.0% |
-| 2 | DeepSeek V3.2 | 84.8% (70.0%-96.7%) | 10,119 / 11,491 | $0.029459 | 12.88s / 53.24s | 100.0% / 100.0% | 86.7% |
-| 3 | Claude Opus 4.8 | 80.0% (62.2%-95.6%) | 13,987 / 3,534 | $0.169365 | 4.29s / 10.61s | 100.0% / 100.0% | 100.0% |
-| 4 | Kimi K2.5 | 76.1% (56.1%-93.9%) | 10,460 / 8,662 | $0.034520 | 5.56s / 20.28s | 100.0% / 100.0% | 93.3% |
-| 5 | OpenAI GPT-5.6 Sol | 71.1% (48.9%-91.1%) | 7,574 / 2,146 | $0.102250 | 3.67s / 10.04s | 100.0% / 100.0% | 100.0% |
-| 6 | Claude Opus 5 | 70.9% (51.8%-88.9%) | 14,017 / 7,952 | $0.287707 | 7.87s / 14.56s | 100.0% / 100.0% | 100.0% |
-| 7 | OpenAI GPT-5.6 Terra | 64.4% (42.2%-86.7%) | 7,574 / 1,918 | $0.047705 | 2.01s / 4.74s | 100.0% / 100.0% | 100.0% |
-| 8 | GLM-5 | 62.2% (37.8%-86.7%) | 10,722 / 15,638 | $0.065017 | 20.03s / 80.48s | 100.0% / 100.0% | 80.0% |
-| 9 | Llama 4 Maverick | 51.6% (30.0%-73.0%) | 10,504 / 9,415 | $0.012469 | 3.32s / 7.61s | 100.0% / 100.0% | 100.0% |
+Models sharing a tier are not separated at 95% confidence. `*` marks an
+interval whose bound is censored by the score scale rather than estimated —
+a `100.0%` bound means the resampled mean hit the ceiling.
+
+| Rank | Tier | Model/system | Quality (95% question-bootstrap CI) | Input / output tokens | Cost | p50 / p95 latency | Final / raw reliability | Cap compliance |
+| ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 1 | Kendr Intelligent | 89.1% (76.1%-100.0%*) | 12,415 / 19,299 | $0.027234 | 9.70s / 60.20s | 100.0% / 93.8% | 75.0% |
+| 2 | 1 | DeepSeek V3.2 | 84.8% (70.4%-96.7%) | 10,119 / 11,491 | $0.029459 | 12.88s / 53.24s | 100.0% / 100.0% | 86.7% |
+| 3 | 1 | Claude Opus 4.8 | 80.0% (62.2%-95.6%) | 13,987 / 3,534 | $0.169365 | 4.29s / 10.61s | 100.0% / 100.0% | 100.0% |
+| 4 | 1 | Kimi K2.5 | 76.1% (56.1%-93.3%) | 10,460 / 8,662 | $0.034520 | 5.56s / 20.28s | 100.0% / 100.0% | 93.3% |
+| 5 | 1 | OpenAI GPT-5.6 Sol | 71.1% (48.9%-91.1%*) | 7,574 / 2,146 | $0.102250 | 3.67s / 10.04s | 100.0% / 100.0% | 100.0% |
+| 6 | 1 | Claude Opus 5 | 70.9% (51.8%-88.9%) | 14,017 / 7,952 | $0.287707 | 7.87s / 14.56s | 100.0% / 100.0% | 100.0% |
+| 7 | 1 | OpenAI GPT-5.6 Terra | 64.4% (42.2%-86.7%*) | 7,574 / 1,918 | $0.047705 | 2.01s / 4.74s | 100.0% / 100.0% | 100.0% |
+| 8 | 1 | GLM-5 | 62.2% (37.8%-84.4%*) | 10,722 / 15,638 | $0.065017 | 20.03s / 80.48s | 100.0% / 100.0% | 80.0% |
+| 9 | 2 | Llama 4 Maverick | 51.6% (30.1%-73.6%) | 10,504 / 9,415 | $0.012469 | 3.32s / 7.61s | 100.0% / 100.0% | 100.0% |
 
 The confidence intervals resample these 15 questions only. They do not include
 generation-to-generation variation or uncertainty from choosing this task
-slice.
+slice. At 15 discrete-valued questions the resampled mean takes roughly 150
+distinct values, so bounds are coarse.
+
+### Does any rank gap survive a paired test?
+
+Each row resamples the per-question differences between two adjacent ranks,
+which is the only test that uses the fact that both answered the same
+questions.
+
+| Higher rank | Lower rank | Mean difference | 95% CI | W/L/T | Separated? |
+| --- | --- | ---: | ---: | ---: | --- |
+| Kendr Intelligent | DeepSeek V3.2 | +4.3 pp | -0.4 to +13.3 | 1/1/13 | no |
+| DeepSeek V3.2 | Claude Opus 4.8 | +4.8 pp | -8.1 to +19.0 | 2/2/11 | no |
+| Claude Opus 4.8 | Kimi K2.5 | +3.9 pp | +0.0 to +9.4 | 2/0/13 | no |
+| Kimi K2.5 | OpenAI GPT-5.6 Sol | +5.0 pp | -5.0 to +20.0 | 1/1/13 | no |
+| OpenAI GPT-5.6 Sol | Claude Opus 5 | +0.2 pp | -18.0 to +16.6 | 2/2/11 | no |
+| Claude Opus 5 | OpenAI GPT-5.6 Terra | +6.5 pp | -13.7 to +28.9 | 3/2/10 | no |
+| OpenAI GPT-5.6 Terra | GLM-5 | +2.2 pp | -22.2 to +26.7 | 2/2/11 | no |
+| GLM-5 | Llama 4 Maverick | +10.6 pp | -17.2 to +38.7 | 4/3/8 | no |
+
+Most pairs tied on 10 or more of 15 questions. The first-versus-second gap
+rests on a single question won in each direction. A slice this small can
+order endpoints but cannot separate them.
 
 ### Quality by capability
 
@@ -79,7 +117,7 @@ indices.
 
 | Model/system | USD / quality point | Tokens / quality point | Cost efficiency vs Sol | Token efficiency vs Sol |
 | --- | ---: | ---: | ---: | ---: |
-| Kendr Intelligent | $0.002037 | 2,052 | 4.71x | 0.44x |
+| Kendr Intelligent | $0.002037 | 2,372 | 4.71x | 0.38x |
 | DeepSeek V3.2 | $0.002315 | 1,698 | 4.14x | 0.54x |
 | Claude Opus 4.8 | $0.014118 | 1,460 | 0.68x | 0.62x |
 | Kimi K2.5 | $0.003024 | 1,675 | 3.17x | 0.54x |
@@ -93,6 +131,16 @@ A quality point is one point on the `0` to `1` task scale, summed across the 15
 questions. Provider-reported token counts use different tokenizers, so
 cross-family token efficiency is directional, not tokenizer-normalized.
 
+Two asymmetries matter when reading the cost column:
+
+- The Kendr figure is an invoice — credits actually billed, including any
+  service margin. The OpenAI figure is undiscounted list price computed from
+  token usage. The ratio is what a buyer pays, not a ratio of inference costs.
+- Kendr Intelligent's router consumes roughly 1,600 tokens per request of its
+  own. Those are inside the billed credits, and therefore inside its cost, but
+  they are not in its token counts. Its tokens-per-quality-point is understated
+  relative to a direct endpoint's.
+
 ### Reliability and the one raw failure
 
 Kendr Intelligent returned all 15 final answers, but one upstream attempt
@@ -104,24 +152,39 @@ succeeded and no credits were charged for the failed attempt. Therefore:
 - raw-attempt reliability was 15/16, or 93.8%;
 - the fixed timeout did not recur; there were no HTTP 504 failures.
 
+That rejected attempt still generated 4,096 output tokens and 812 input
+tokens. They are counted in the totals above even though no credits were
+charged, because the tokens were really produced; excluding them understated
+Kendr's output volume by 27% and its tokens-per-quality-point by 13%.
+
+Raw-attempt reliability is not comparable across providers. Kendr retries are
+explicit and logged as separate attempts, while the OpenAI client retries
+inside its transport, so an OpenAI raw-attempt rate can only ever read 100%.
+
 The run also exposed a separate output-limit compatibility issue. The
 OpenAI-compatible benchmark sent `max_tokens=2048`, while the inspected Kendr
 request contract accepts `max_output_tokens`; the omitted recognized field
-fell back to 4,096. This explains the 80% cap compliance for Kendr Intelligent.
-Until those request fields are normalized, the matrix is an endpoint-as-served
-comparison rather than a perfectly controlled foundation-model ablation.
+fell back to 4,096. That is why Kendr Intelligent complied with the requested
+cap on only 12 of 16 attempts. **The harness now sends both keys**, so the cap
+binds on either contract — but this run predates that change, so its token and
+cost axes are not controlled and it needs re-measuring before those columns are
+compared. `temperature` and `reasoning_effort` are still absent from the Kendr
+contract, so those remain unnormalized.
 
-### Why Opus 5 ranked below Opus 4.8 in this run
+### Opus 5 versus Opus 4.8 in this run
 
-The observed 9.0-point gap was concentrated in table joining and
-summarization. The models tied on 12 of 15 questions; Opus 4.8 won three and
-Opus 5 won none. The paired question-bootstrap interval for the difference was
-`-20.5` to `0.0` percentage points.
+Opus 4.8 scored 80.0% and Opus 5 scored 70.9%. The models tied on 12 of 15
+questions; Opus 4.8 won three and Opus 5 won none. The paired
+question-bootstrap interval for the difference was `-20.5` to `0.0` percentage
+points, which **includes zero**, so the two are not separated at 95%
+confidence.
 
-This small, single-generation slice is not evidence that Opus 4.8 is generally
-better. Provider-effective reasoning settings were also not normalized through
-the Kendr request contract. Vendor aggregate claims and this narrow observed
-endpoint result therefore answer different questions.
+No cause is attributed here. The comparison rests on three informative
+questions out of fifteen, and provider-effective reasoning was not normalized
+through the Kendr request contract — Anthropic documents Opus 5 thinking as on
+by default while Opus 4.8 adaptive thinking is off unless requested. This slice
+is not evidence about which model is generally stronger, and it does not
+contradict vendor aggregate claims; the two answer different questions.
 
 ## Methodology
 
@@ -163,7 +226,9 @@ judgments are preserved unchanged.
 
 | Dimension | Definition |
 | --- | --- |
-| Quality | Mean official, task-specific LiveBench score over all requested questions; provider failures count as zero |
+| Quality | Mean official, task-specific LiveBench score over all requested questions; provider failures count as zero. The confidence interval resamples exactly these normalized scores |
+| Tier | Models whose 95% intervals overlap the tier leader's share a tier; a new tier opens only when an interval falls entirely below the leader's lower bound |
+| Cap compliance | Share of attempts reporting output at or under the requested cap, measured over every attempt that generated output, including rejected ones |
 | Relevance | Task correctness and instruction compliance; there is no separate generic relevance score |
 | Reliability | Final successful answers and raw successful attempts are reported separately |
 | Latency | Client-observed, non-streaming end-to-end request duration; TTFT is unavailable |
@@ -175,9 +240,21 @@ judgments are preserved unchanged.
 ### Limitations
 
 - This is a five-task, 15-question slice, not the complete LiveBench suite.
+- No adjacent rank gap is separated at 95% confidence. The ordering is not a
+  measured ranking.
 - One generation per question does not measure output variance.
+- Requests ran at concurrency 2, so every latency figure is measured under
+  load and is higher than a single-request measurement. The load is identical
+  for every model, so ordering is comparable while absolute values are not.
+- p95 and p99 over 15 observations are functions of the top two samples only;
+  they are not tail statistics.
 - Latency includes different transports and routing overhead; it is not a pure
   model-compute comparison.
+- Kendr cost is a billed invoice while OpenAI cost is modelled list price, and
+  Kendr's router tokens are billed but not counted in its token totals.
+- Where cap compliance is below 100%, that endpoint was allowed to generate
+  more than the requested budget, which biases token and cost comparisons in
+  its favor.
 - Kendr Intelligent is a routed system and may select different models over
   time.
 - Sampling, reasoning, and output-limit parameters are not fully normalized

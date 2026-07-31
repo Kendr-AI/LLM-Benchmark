@@ -24,6 +24,14 @@ from .livebench_cli import (
     summarize_existing_run,
 )
 from .providers import KENDR_DEFAULT_USD_PER_CREDIT
+from .scoring import (
+    bootstrap_ci,
+    category_scores,
+    failed_question_ids,
+    paired_deltas,
+    separation_tiers,
+    stable_seed,
+)
 
 DEFAULT_MATRIX_RELEASE = "2026-06-25"
 DEFAULT_MATRIX_TASKS = (
@@ -220,55 +228,44 @@ def _selected_panel(keys: Sequence[str] | None) -> list[ModelSpec]:
     ]
 
 
-def _failed_question_ids(path: Path) -> set[str]:
-    failed: set[str] = set()
+def _read_records(path: Path) -> list[dict[str, Any]]:
     if not path.is_file():
-        return failed
+        return []
+    records: list[dict[str, Any]] = []
     with path.open(encoding="utf-8") as handle:
         for line in handle:
-            if not line.strip():
-                continue
-            record = json.loads(line)
-            if bool(record.get("error")) or any(
-                turn == "$ERROR$"
-                for choice in record.get("choices", [])
-                for turn in choice.get("turns", [])
-            ):
-                failed.add(str(record.get("question_id")))
-    return failed
+            if line.strip():
+                records.append(json.loads(line))
+    return records
+
+
+def _failed_question_ids(path: Path) -> set[str]:
+    return failed_question_ids(_read_records(path))
 
 
 def _category_scores(
     path: Path, answers_path: Path | None = None
 ) -> dict[str, float]:
-    grouped: dict[str, list[float]] = {}
     failed = (
         _failed_question_ids(answers_path)
         if answers_path is not None
         else set()
     )
-    if not path.is_file():
-        return {}
-    with path.open(encoding="utf-8") as handle:
-        for line in handle:
-            if not line.strip():
-                continue
-            record = json.loads(line)
-            score = record.get("score")
-            category = record.get("category")
-            if score in (None, -1) or not category:
-                continue
-            normalized = (
-                0.0
-                if str(record.get("question_id")) in failed
-                else float(score)
-            )
-            grouped.setdefault(str(category), []).append(normalized)
-    return {
-        category: sum(scores) / len(scores)
-        for category, scores in sorted(grouped.items())
-        if scores
-    }
+    return category_scores(_read_records(path), failed)
+
+
+def _question_scores(path: Path, answers_path: Path) -> dict[str, float]:
+    """Per-question failure-normalized scores, for paired comparisons."""
+    failed = _failed_question_ids(answers_path)
+    scores: dict[str, float] = {}
+    for record in _read_records(path):
+        if record.get("score") in (None, -1):
+            continue
+        question_id = str(record.get("question_id"))
+        scores[question_id] = (
+            0.0 if question_id in failed else float(record["score"])
+        )
+    return scores
 
 
 def _leaderboard_row(
@@ -285,6 +282,7 @@ def _leaderboard_row(
     categories = _category_scores(
         run_dir / "judgments.jsonl", run_dir / "answers.jsonl"
     )
+    interval = quality.get("quality_ci95") or {}
     successful_answers = reliability["successful_answers"]
     failed_answers = reliability["failed_answers"]
     attempted_answers = successful_answers + failed_answers
@@ -307,6 +305,10 @@ def _leaderboard_row(
         "questions_scored": quality["questions_scored"],
         "quality_points": quality["quality_points"],
         "quality_score": end_to_end_quality_score,
+        "quality_ci95_low": interval.get("low"),
+        "quality_ci95_high": interval.get("high"),
+        "quality_ci95_degenerate": interval.get("degenerate"),
+        "tier": None,
         "end_to_end_quality_score": end_to_end_quality_score,
         "conditional_quality_score": conditional_quality_score,
         "availability": reliability["answer_success_rate"],
@@ -355,6 +357,12 @@ def _leaderboard_row(
             "provider_error_distribution"
         ],
         "run_dir": str(run_dir),
+        # Underscore-prefixed keys stay out of the published CSV/JSON; they only
+        # feed tiering and paired comparisons.
+        "_question_scores": _question_scores(
+            run_dir / "judgments.jsonl", run_dir / "answers.jsonl"
+        ),
+        "_capability_keys": sorted(categories),
     }
     for category, score in categories.items():
         row[f"{category}_score"] = score
@@ -410,18 +418,76 @@ def _write_leaderboard(
     for rank, row in enumerate(ordered, 1):
         row["rank"] = rank
 
+    tiers = separation_tiers(
+        [
+            (
+                row["panel_key"],
+                {
+                    "low": row.get("quality_ci95_low"),
+                    "high": row.get("quality_ci95_high"),
+                },
+            )
+            for row in ordered
+        ]
+    )
+    for row in ordered:
+        row["tier"] = tiers.get(row["panel_key"])
+
+    # Marginal intervals are the weakest test available on paired data. Each
+    # adjacent pair answered the same questions, so the paired bootstrap is what
+    # actually says whether one outranked the other.
+    adjacent: list[dict[str, Any]] = []
+    for higher, lower in zip(ordered, ordered[1:]):
+        deltas = paired_deltas(
+            higher.get("_question_scores") or {},
+            lower.get("_question_scores") or {},
+        )
+        if not deltas:
+            continue
+        interval = bootstrap_ci(
+            deltas,
+            seed=stable_seed(
+                f"{higher['panel_key']}|{lower['panel_key']}"
+            ),
+        )
+        low, high = interval["low"], interval["high"]
+        adjacent.append(
+            {
+                "higher_ranked": higher["model"],
+                "lower_ranked": lower["model"],
+                "questions_compared": len(deltas),
+                "mean_difference": sum(deltas) / len(deltas),
+                "ci95_low": low,
+                "ci95_high": high,
+                "separates_at_95": bool(
+                    low is not None
+                    and high is not None
+                    and (low > 0 or high < 0)
+                ),
+                "wins_higher_ranked": sum(delta > 0 for delta in deltas),
+                "wins_lower_ranked": sum(delta < 0 for delta in deltas),
+                "ties": sum(delta == 0 for delta in deltas),
+            }
+        )
+
+    # Discover capabilities from what each run actually graded. Scanning for a
+    # "_score" suffix also swept up the two overall-quality columns and rendered
+    # them as if they were capabilities.
     categories = sorted(
         {
-            key.removesuffix("_score")
+            key
             for row in ordered
-            for key in row
-            if key.endswith("_score")
-            and key
-            not in {
-                "quality_score",
-            }
+            for key in (row.get("_capability_keys") or [])
         }
     )
+    published = [
+        {
+            key: value
+            for key, value in row.items()
+            if not key.startswith("_")
+        }
+        for row in ordered
+    ]
     json_document = {
         "matrix_id": matrix_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -432,9 +498,12 @@ def _write_leaderboard(
         "parallel_requests": parallel_requests,
         "ranking_rule": (
             "Official question-weighted LiveBench objective score descending; "
-            "estimated/reported USD then p50 latency ascending as tie-breakers"
+            "estimated/reported USD then p50 latency ascending as tie-breakers. "
+            "Rank order is finer than the sample resolves: use `tier` and "
+            "`adjacent_pair_tests` to judge which gaps are real."
         ),
-        "results": ordered,
+        "results": published,
+        "adjacent_pair_tests": adjacent,
         "failures": failures,
     }
     (root / "leaderboard.json").write_text(
@@ -443,7 +512,7 @@ def _write_leaderboard(
     )
 
     fieldnames: list[str] = []
-    for row in ordered:
+    for row in published:
         for key in row:
             if key not in fieldnames:
                 fieldnames.append(key)
@@ -452,7 +521,7 @@ def _write_leaderboard(
     ) as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
-        for row in ordered:
+        for row in published:
             writer.writerow(
                 {
                     key: json.dumps(value, sort_keys=True)
@@ -465,22 +534,38 @@ def _write_leaderboard(
     lines = [
         f"# Popular-model LiveBench leaderboard: {matrix_id}",
         "",
-        "This is an observed, apples-to-apples run—not a table of vendor "
-        "claims. Every model received the same question slice and requested "
-        "output cap.",
+        "This is an observed endpoint-as-served run, not a table of vendor "
+        "claims. Every model received the same question slice and the same "
+        "*requested* output cap; check the cap-compliance column before reading "
+        "the token and cost axes as controlled.",
         "",
         "## Overall leaderboard",
         "",
-        "| Rank | Model | Access | E2E quality | Conditional quality | "
+        "Ranks are printed in full for traceability, but adjacent ranks are "
+        "routinely closer than this sample can resolve. Models sharing a tier "
+        "are not separated at 95% confidence.",
+        "",
+        "| Rank | Tier | Model | Access | E2E quality | 95% CI | "
+        "Conditional quality | "
         "Availability | Scored | Cost | p50 success latency | "
         "p50 failed latency | Total tokens | Tokens / quality point | "
         "Cap compliance |",
-        "|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "|---:|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in ordered:
+        ci_low = row.get("quality_ci95_low")
+        ci_high = row.get("quality_ci95_high")
+        ci_text = (
+            f"{_percent(ci_low)}–{_percent(ci_high)}"
+            + ("*" if row.get("quality_ci95_degenerate") else "")
+            if ci_low is not None and ci_high is not None
+            else "n/a"
+        )
         lines.append(
-            f"| {row['rank']} | {row['model']} | {row['access']} | "
+            f"| {row['rank']} | {row.get('tier') or 'n/a'} | {row['model']} | "
+            f"{row['access']} | "
             f"{_percent(row.get('end_to_end_quality_score', row.get('quality_score')))} | "
+            f"{ci_text} | "
             f"{_percent(row.get('conditional_quality_score'))} | "
             f"{_percent(row.get('availability', row.get('answer_success_rate')))} | "
             f"{row['questions_scored']} | {_money(row['cost_usd'])} | "
@@ -489,6 +574,53 @@ def _write_leaderboard(
             f"{row['total_tokens']:,} | "
             f"{_number(row['tokens_per_quality_point'])} | "
             f"{_percent(row['output_cap_compliance_rate'])} |"
+        )
+
+    if any(row.get("quality_ci95_degenerate") for row in ordered):
+        lines.extend(
+            [
+                "",
+                "`*` marks an interval whose bound is censored by the score "
+                "scale or built from too few distinct resample values to read "
+                "as a real limit. At this sample size a bound printed as "
+                "`100.0%` means the resampled mean hit the ceiling, not that "
+                "the endpoint is estimated to reach it.",
+            ]
+        )
+
+    if adjacent:
+        lines.extend(
+            [
+                "",
+                "## Does each rank gap survive a paired test?",
+                "",
+                "Each row resamples the per-question differences between two "
+                "adjacent ranks, which is the only test that uses the fact "
+                "that both answered the same questions.",
+                "",
+                "| Higher rank | Lower rank | Mean difference | 95% CI | "
+                "W/L/T | Separated at 95%? |",
+                "|---|---|---:|---:|---:|---|",
+            ]
+        )
+        for item in adjacent:
+            lines.append(
+                f"| {item['higher_ranked']} | {item['lower_ranked']} | "
+                f"{_percent(item['mean_difference'])} | "
+                f"{_percent(item['ci95_low'])}–"
+                f"{_percent(item['ci95_high'])} | "
+                f"{item['wins_higher_ranked']}/"
+                f"{item['wins_lower_ranked']}/{item['ties']} | "
+                f"{'yes' if item['separates_at_95'] else 'no'} |"
+            )
+        separated = sum(item["separates_at_95"] for item in adjacent)
+        lines.extend(
+            [
+                "",
+                f"{separated} of {len(adjacent)} adjacent gaps are separated "
+                "at 95% confidence. Unseparated gaps are ordering noise, not "
+                "measured differences.",
+            ]
         )
 
     baseline = next(
@@ -608,7 +740,8 @@ def _write_leaderboard(
         lines.append(
             f"| {row['model']} | "
             f"{row.get('successful_answers', 'n/a')} / "
-            f"{row['questions_scored']} | `{errors}` | `{routes}` |"
+            f"{row.get('attempted_answers', row['questions_scored'])} | "
+            f"`{errors}` | `{routes}` |"
         )
 
     lines.extend(
@@ -634,9 +767,29 @@ def _write_leaderboard(
             "credit. Raw official judgments remain preserved per run.",
             "- Cost is provider-reported credits converted at the configured "
             "USD/credit rate for Kendr, and token-estimated standard API cost "
-            "for direct OpenAI.",
+            "for direct OpenAI. These are different price bases: the Kendr "
+            "figure is what was actually billed, including any service margin, "
+            "while the OpenAI figure is undiscounted list price. Read cost "
+            "ratios as what a buyer pays, not as inference-cost ratios.",
+            "- Kendr Intelligent's router consumes tokens of its own on every "
+            "request. Those tokens are inside the reported credits, and "
+            "therefore inside its cost, but they are not in its token counts. "
+            "Its tokens-per-quality-point is understated relative to a direct "
+            "endpoint's.",
+            f"- Requests ran at concurrency {parallel_requests}, so latency is "
+            "measured under load and is higher than a single-request "
+            "measurement would be. The load is the same for every model, so "
+            "ordering is comparable while absolute values are not.",
+            "- Cap compliance below 100% means that endpoint was not held to "
+            "the requested output budget. Token and cost comparisons against a "
+            "fully compliant endpoint are biased in favor of whichever one was "
+            "allowed to generate more.",
             "- Time to first token is unavailable because the instrumented "
             "path is non-streaming. Latency is client-observed end-to-end.",
+            "- Retry visibility differs by provider: Kendr retries are "
+            "explicit and logged as separate attempts, while the OpenAI client "
+            "retries inside the transport. Raw-attempt reliability is therefore "
+            "not comparable across the two paths.",
             "- Open-weight means model weights are available under the linked "
             "upstream terms. It does not imply every license is OSI-approved.",
             "- The latest classic LiveBench release has no active classic "

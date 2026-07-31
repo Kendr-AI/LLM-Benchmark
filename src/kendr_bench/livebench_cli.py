@@ -23,9 +23,19 @@ from .livebench_adapter import (
     KENDR_LIVEBENCH_USD_PER_CREDIT,
     LIVEBENCH_PRICING_PATH,
     OPENAI_LIVEBENCH_REASONING_EFFORT,
+    recovered_call_usage,
 )
 from .providers import KENDR_DEFAULT_USD_PER_CREDIT
 from .livebench_worker import INSTRUCTION_FOLLOWING_COMPATIBILITY_PATCH
+from .scoring import (
+    answer_failed,
+    bootstrap_ci,
+    category_scores,
+    failed_question_ids,
+    is_scored,
+    normalized_scores,
+    stable_seed,
+)
 
 LIVEBENCH_REPOSITORY = "https://github.com/LiveBench/LiveBench.git"
 LIVEBENCH_REVISION = "4355e9b04222745ccc02a2661d1deebe767a85a2"
@@ -657,8 +667,9 @@ def _write_summary(
     cost_usd_available = False
     latencies: list[float] = []
     failed_request_latencies: list[float] = []
+    malformed_cost_records: list[str] = []
     for call in calls:
-        usage = call.get("usage") or {}
+        usage = recovered_call_usage(call)
         input_tokens += int(usage.get("prompt_tokens") or 0)
         output_tokens += int(usage.get("completion_tokens") or 0)
         details = usage.get("prompt_tokens_details") or {}
@@ -672,7 +683,11 @@ def _write_summary(
                 cost_usd += Decimal(str(call["cost_usd"]))
                 cost_usd_available = True
             except InvalidOperation:
-                pass
+                # Silently skipping this understated the published total with
+                # no trace, so the count is surfaced in the summary instead.
+                malformed_cost_records.append(
+                    str(call.get("request_id") or "unknown")
+                )
         if call.get("latency_ms") is not None:
             target = (
                 failed_request_latencies
@@ -681,23 +696,35 @@ def _write_summary(
             )
             target.append(float(call["latency_ms"]))
     successful_calls = [call for call in calls if not call.get("error")]
+
+    def _reported_output_tokens(call: Mapping[str, Any]) -> int:
+        return int(
+            recovered_call_usage(call).get("completion_tokens") or 0
+        )
+
+    # Cap compliance is measured over every attempt that reported output, not
+    # only successful ones. A truncation rejection is the most flagrant possible
+    # breach of the requested cap, so excluding it hid the violation that caused
+    # the failure from both numerator and denominator.
+    capped_calls = [
+        call for call in calls if _reported_output_tokens(call) > 0
+    ]
     output_cap_violations = sum(
-        int((call.get("usage") or {}).get("completion_tokens") or 0)
-        > args.max_tokens
-        for call in successful_calls
+        _reported_output_tokens(call) > args.max_tokens
+        for call in capped_calls
     )
     maximum_output_tokens = max(
-        (
-            int((call.get("usage") or {}).get("completion_tokens") or 0)
-            for call in successful_calls
-        ),
+        (_reported_output_tokens(call) for call in calls),
         default=0,
+    )
+    failed_attempt_output_tokens = sum(
+        _reported_output_tokens(call)
+        for call in calls
+        if call.get("error")
     )
 
     scores = [
-        float(record["score"])
-        for record in judgments
-        if record.get("score") not in (None, -1)
+        float(record["score"]) for record in judgments if is_scored(record)
     ]
     current_question_ids = _current_run_question_ids(calls, answers)
     current_answers = [
@@ -709,47 +736,20 @@ def _write_summary(
         record
         for record in judgments
         if str(record.get("question_id")) in current_question_ids
-        and record.get("score") not in (None, -1)
+        and is_scored(record)
     ]
-    failed_question_ids = {
-        str(record.get("question_id"))
-        for record in current_answers
-        if bool(record.get("error"))
-        or any(
-            turn == "$ERROR$"
-            for choice in record.get("choices", [])
-            for turn in choice.get("turns", [])
-        )
-    }
-    # Some instruction-following graders award format points to the literal
-    # provider-failure sentinel. Provider failures are availability failures,
-    # not low-quality answers, and are normalized to zero in current-run
-    # quality while the raw official judgments remain in judgments.jsonl.
-    current_scores = [
-        0.0
-        if str(record.get("question_id")) in failed_question_ids
-        else float(record["score"])
-        for record in current_judgments
-    ]
+    failed_ids = failed_question_ids(current_answers)
+    current_scores = normalized_scores(current_judgments, failed_ids)
     quality_points = sum(current_scores)
+    # The interval must resample exactly the scores behind the point estimate.
+    # Seeding from the requested model keeps it stable across panel subsets.
+    quality_interval = bootstrap_ci(
+        current_scores, seed=stable_seed(str(args.model))
+    )
     current_failures = sum(
-        bool(record.get("error"))
-        or any(
-            turn == "$ERROR$"
-            for choice in record.get("choices", [])
-            for turn in choice.get("turns", [])
-        )
-        for record in current_answers
+        answer_failed(record) for record in current_answers
     )
-    failed_answers = sum(
-        bool(record.get("error"))
-        or any(
-            turn == "$ERROR$"
-            for choice in record.get("choices", [])
-            for turn in choice.get("turns", [])
-        )
-        for record in answers
-    )
+    failed_answers = sum(answer_failed(record) for record in answers)
     router_latencies = [
         float(routing["router_latency_ms"])
         for call in calls
@@ -823,6 +823,8 @@ def _write_summary(
             "requested_max_output_tokens": args.max_tokens,
             "calls_exceeding_requested_output_cap": output_cap_violations,
             "maximum_output_tokens_observed": maximum_output_tokens,
+            "failed_attempt_output_tokens": failed_attempt_output_tokens,
+            "token_totals_include_failed_attempts": True,
         },
         "current_run_quality": {
             "measurement": (
@@ -850,6 +852,10 @@ def _write_summary(
                 / current_scored_count
                 if current_scored_count
                 else None
+            ),
+            "quality_ci95": quality_interval,
+            "category_scores": category_scores(
+                current_judgments, failed_ids
             ),
         },
         "efficiency": {
@@ -934,14 +940,16 @@ def _write_summary(
                 else None
             ),
             "output_cap_compliance_rate": (
-                (len(successful_calls) - output_cap_violations)
-                / len(successful_calls)
-                if successful_calls
+                (len(capped_calls) - output_cap_violations)
+                / len(capped_calls)
+                if capped_calls
                 else None
             ),
+            "output_cap_measured_attempts": len(capped_calls),
             "calls_exceeding_requested_output_cap": (
                 output_cap_violations
             ),
+            "malformed_cost_records": malformed_cost_records,
             "route_distribution": dict(route_distribution),
             "router_task_distribution": dict(task_distribution),
             "provider_error_distribution": dict(

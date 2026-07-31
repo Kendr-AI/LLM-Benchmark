@@ -84,6 +84,9 @@ def test_kendr_adapter_adds_idempotency_and_captures_metadata(
     assert captured["extra_headers"]["Idempotency-Key"]
     assert captured["client"]["max_retries"] == 0
     assert captured["max_tokens"] == 64
+    # Kendr recognizes max_output_tokens, not max_tokens, and silently falls
+    # back to 4096 without it. Both keys must go out.
+    assert captured["extra_body"]["max_output_tokens"] == 64
     assert metadata["input_tokens"] == 10
     assert metadata["kendr_credits_charged"] == "0.125"
     assert metadata["kendr_calls"][0]["request_id"] == "req-123"
@@ -423,3 +426,84 @@ def test_kendr_adapter_preserves_failed_routing_metadata(
     assert logged["kendr_routing"]["attempted_candidates"][0]["status"] == (
         "failed"
     )
+
+
+def test_kendr_adapter_reads_the_unwrapped_error_body_shape(
+    monkeypatch, tmp_path
+):
+    """The live SDK hands back an already-unwrapped body.
+
+    Reading only the enveloped shape discarded routing and the tokens the
+    provider had actually generated, which understated output volume and
+    flattered tokens-per-quality-point.
+    """
+
+    class TruncationError(RuntimeError):
+        request_id = "req-truncated"
+        status_code = 502
+        body = {
+            "code": "incomplete_response",
+            "type": "upstream_error",
+            "param": None,
+            "message": (
+                "Kendr Intelligent Auto did not produce a complete "
+                "response. No credits were charged."
+            ),
+            "details": {
+                "accepted": False,
+                "attempt_count": 1,
+                "kendr_routing": {
+                    "selected_model_alias": "kc-deepseek-v3.2",
+                    "router_latency_ms": 2640,
+                },
+                "kendr_optimization": {"enabled": True},
+                "attempts": [
+                    {
+                        "usage": {
+                            "input_tokens": 812,
+                            "output_tokens": 4096,
+                        },
+                        "verification": {
+                            "deterministic_failures": ["truncated"],
+                            "passed": False,
+                        },
+                    }
+                ],
+            },
+        }
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(
+                    create=lambda **request: (_ for _ in ()).throw(
+                        TruncationError("truncated")
+                    )
+                )
+            )
+
+    monkeypatch.setattr(openai, "OpenAI", FakeOpenAI)
+    monkeypatch.setenv("KENDR_LIVEBENCH_SAFE_RETRIES", "0")
+    log = tmp_path / "truncated-calls.jsonl"
+    monkeypatch.setenv("KENDR_LIVEBENCH_CALL_LOG", str(log))
+
+    output, _, _ = kendr_chat_completion(
+        model="kendr-intelligent",
+        messages=[{"role": "user", "content": "Question"}],
+        temperature=0,
+        max_tokens=2048,
+        api_dict={"api_key": "key", "api_base": "https://kendr.org/v1"},
+    )
+
+    assert output == "$ERROR$"
+    logged = json.loads(log.read_text(encoding="utf-8"))
+    assert logged["kendr_routing"]["router_latency_ms"] == 2640
+    assert logged["kendr_routing"]["selected_model_alias"] == (
+        "kc-deepseek-v3.2"
+    )
+    assert logged["kendr_optimization"] == {"enabled": True}
+    assert logged["usage"]["completion_tokens"] == 4096
+    assert logged["usage"]["prompt_tokens"] == 812
+    assert logged["usage_source"] == "failed_attempt_provider_report"
+    # Uncharged, so it must still contribute no cost.
+    assert logged["cost_usd"] is None

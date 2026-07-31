@@ -43,6 +43,11 @@ def test_write_leaderboard_ranks_quality_first(tmp_path):
             "answer_success_rate": 1,
             "output_cap_compliance_rate": 1,
             "reasoning_score": 0.5,
+            "quality_ci95_low": 0.3,
+            "quality_ci95_high": 0.7,
+            "quality_ci95_degenerate": False,
+            "_capability_keys": ["reasoning"],
+            "_question_scores": {"q1": 0.0, "q2": 1.0},
         },
         {
             "rank": None,
@@ -65,6 +70,11 @@ def test_write_leaderboard_ranks_quality_first(tmp_path):
             "answer_success_rate": 1,
             "output_cap_compliance_rate": 1,
             "reasoning_score": 0.8,
+            "quality_ci95_low": 0.6,
+            "quality_ci95_high": 1.0,
+            "quality_ci95_degenerate": True,
+            "_capability_keys": ["reasoning"],
+            "_question_scores": {"q1": 1.0, "q2": 1.0},
         },
     ]
 
@@ -85,9 +95,21 @@ def test_write_leaderboard_ranks_quality_first(tmp_path):
     )
     assert document["results"][0]["model"] == "Higher"
     assert (tmp_path / "leaderboard.csv").is_file()
-    assert "Quality by capability" in (
-        tmp_path / "leaderboard.md"
+    report = (tmp_path / "leaderboard.md").read_text(encoding="utf-8")
+    assert "Quality by capability" in report
+    # Overlapping intervals must not be presented as a separated ranking.
+    assert [row["tier"] for row in document["results"]] == [1, 1]
+    assert document["adjacent_pair_tests"][0]["separates_at_95"] is False
+    assert "1 | Higher" not in report.replace("| 1 | 1 | Higher", "")
+    # Intermediates stay out of the published artifacts.
+    assert "_question_scores" not in json.dumps(document)
+    assert "_capability_keys" not in (
+        tmp_path / "leaderboard.csv"
     ).read_text(encoding="utf-8")
+    # The overall-quality columns must not be rendered as capabilities.
+    capability_header = report.split("## Quality by capability")[1]
+    assert "End To End Quality" not in capability_header
+    assert "Conditional Quality" not in capability_header
 
 
 def test_leaderboard_row_separates_quality_from_availability(tmp_path):
