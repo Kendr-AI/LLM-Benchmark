@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kendr.ai/schemas/llm-benchmark-protocol/system-card-1.0.json",
+  "title": "LLM Benchmark Protocol system card",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "system_id", "display_name", "provider", "owner",
+    "system_type", "deployment_scope", "access_mode", "version",
+    "endpoint", "regions", "input_modalities", "output_modalities",
+    "declared_capabilities", "context_limit", "output_limit",
+    "elicitation", "tools", "safeguards", "pricing", "license",
+    "captured_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "system_id": {"type": "string", "minLength": 1},
+    "display_name": {"type": "string", "minLength": 1},
+    "provider": {"type": "string", "minLength": 1},
+    "owner": {"type": "string", "minLength": 1},
+    "system_type": {"enum": ["base-model", "instruction-model", "reasoning-model", "specialist-model", "multimodal-model", "embedding-model", "reranker", "endpoint", "router", "ensemble", "agent", "application"]},
+    "deployment_scope": {"enum": ["model", "endpoint", "routed-system", "agentic-system", "application"]},
+    "access_mode": {"enum": ["first-party-api", "third-party-api", "managed", "open-weights", "local", "hybrid"]},
+    "version": {"type": "string", "minLength": 1},
+    "model_snapshot": {"type": ["string", "null"]},
+    "endpoint": {"type": ["string", "null"]},
+    "regions": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "input_modalities": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true},
+    "output_modalities": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true},
+    "declared_capabilities": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "context_limit": {"type": ["integer", "null"], "minimum": 1},
+    "output_limit": {"type": ["integer", "null"], "minimum": 1},
+    "elicitation": {"type": "object", "minProperties": 1},
+    "tools": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "safeguards": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "tokenizer": {"type": ["string", "null"]},
+    "pricing": {"type": "object", "minProperties": 1},
+    "license": {"type": "object", "minProperties": 1},
+    "routing_candidate_set": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "captured_at": {"type": "string", "format": "date-time"}
+  }
+}

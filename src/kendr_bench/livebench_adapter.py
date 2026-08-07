@@ -15,6 +15,9 @@ KENDR_LIVEBENCH_RUN_ID = "KENDR_LIVEBENCH_RUN_ID"
 KENDR_LIVEBENCH_USD_PER_CREDIT = "KENDR_LIVEBENCH_USD_PER_CREDIT"
 KENDR_LIVEBENCH_SAFE_RETRIES = "KENDR_LIVEBENCH_SAFE_RETRIES"
 KENDR_LIVEBENCH_RETRY_OPAQUE_5XX = "KENDR_LIVEBENCH_RETRY_OPAQUE_5XX"
+KENDR_OUTPUT_CAP_COMPATIBILITY_PATCH = (
+    "kendr-output-cap-field-compatibility-v1"
+)
 LIVEBENCH_PRICING_PATH = "KENDR_LIVEBENCH_PRICING_PATH"
 OPENAI_LIVEBENCH_REASONING_EFFORT = (
     "KENDR_LIVEBENCH_OPENAI_REASONING_EFFORT"
@@ -217,6 +220,30 @@ def _exception_status_code(exc: BaseException) -> int | None:
     return None
 
 
+def _exception_request_id(
+    exc: BaseException, error_body: Mapping[str, Any]
+) -> str:
+    request_id = getattr(exc, "request_id", None)
+    if request_id:
+        return str(request_id)
+
+    nested_error = _nested_mapping(error_body, ("error",))
+    request_id = error_body.get("request_id") or nested_error.get(
+        "request_id"
+    )
+    if request_id:
+        return str(request_id)
+
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    get_header = getattr(headers, "get", None)
+    if callable(get_header):
+        request_id = get_header("x-request-id")
+        if request_id:
+            return str(request_id)
+    return ""
+
+
 def _exception_messages(
     exc: BaseException, error_body: Mapping[str, Any]
 ) -> list[str]:
@@ -351,6 +378,7 @@ def kendr_chat_completion(
                 or idempotency_key
             )
             retry_reason = _kendr_retry_reason(exc, error_body)
+            explicitly_uncharged = retry_reason == "no_credits_charged"
             will_retry = (
                 retry_reason is not None and len(prior_calls) < safe_retries
             )
@@ -375,11 +403,19 @@ def kendr_chat_completion(
                     if failed_usage
                     else "unavailable"
                 ),
-                "kendr_usage": {},
-                "kendr_credits": None,
-                "kendr_cost_usd": None,
-                "cost_usd": None,
-                "cost_source": "unavailable_failed_request",
+                "kendr_usage": (
+                    {"credits_charged": "0"}
+                    if explicitly_uncharged
+                    else {}
+                ),
+                "kendr_credits": "0" if explicitly_uncharged else None,
+                "kendr_cost_usd": "0" if explicitly_uncharged else None,
+                "cost_usd": "0" if explicitly_uncharged else None,
+                "cost_source": (
+                    "provider_explicit_no_charge"
+                    if explicitly_uncharged
+                    else "unavailable_failed_request"
+                ),
                 "kendr_routing": kendr_routing,
                 "kendr_optimization": kendr_optimization,
                 "latency_ms": latency_ms,
@@ -548,24 +584,101 @@ def openai_chat_completion(
 
     api_base = api_dict.get("api_base") or None
     started = time.perf_counter()
-    client = OpenAI(
-        api_key=api_dict["api_key"],
-        base_url=api_base,
-        timeout=1200,
-        max_retries=2,
-    )
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        stream=False,
-        **request_kwargs,
-    )
+    response: Any | None = None
+    try:
+        client = OpenAI(
+            api_key=api_dict["api_key"],
+            base_url=api_base,
+            timeout=1200,
+            # Hidden SDK retries make raw-attempt reliability and latency
+            # incomparable with Kendr. Keep retries at the benchmark layer so
+            # every transport attempt can produce its own call-log record.
+            max_retries=0,
+        )
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            stream=False,
+            **request_kwargs,
+        )
+        if not response.choices:
+            raise RuntimeError("OpenAI returned no completion choices.")
+        output = response.choices[0].message.content
+        if not output:
+            raise RuntimeError("OpenAI returned an empty completion.")
+    except Exception as exc:
+        latency_ms = (time.perf_counter() - started) * 1000
+        error_body = _exception_body(exc)
+        response_usage = (
+            _json_value(getattr(response, "usage", None)) if response else {}
+        )
+        usage = (
+            dict(response_usage)
+            if isinstance(response_usage, Mapping)
+            else {}
+        )
+        prompt_details = usage.get("prompt_tokens_details") or {}
+        input_tokens = int(usage.get("prompt_tokens") or 0)
+        cached_tokens = int(prompt_details.get("cached_tokens") or 0)
+        actual_model = (
+            str(getattr(response, "model", "") or model)
+            if response is not None
+            else None
+        )
+        request_id = (
+            str(getattr(response, "id", "") or "")
+            if response is not None
+            else ""
+        ) or _exception_request_id(exc, error_body)
+        error = {
+            "type": type(exc).__name__,
+            "message": str(exc),
+            "body": dict(error_body) if error_body else None,
+            "status_code": _exception_status_code(exc),
+        }
+        call = {
+            "run_id": os.getenv(KENDR_LIVEBENCH_RUN_ID),
+            "provider": "openai",
+            "request_id": request_id,
+            "requested_model": model,
+            "actual_model": actual_model,
+            "input_messages": copy.deepcopy(messages),
+            "request_parameters": copy.deepcopy(request_kwargs),
+            "output_text": "$ERROR$",
+            "usage": usage,
+            "usage_source": (
+                "provider_response" if usage else "unavailable"
+            ),
+            "cost_usd": None,
+            "cost_source": "unavailable_failed_request",
+            "rate_card": None,
+            "latency_ms": latency_ms,
+            "timestamp": time.time(),
+            "attempt_number": 1,
+            "will_retry": False,
+            "retry_reason": None,
+            "transport_max_retries": 0,
+            "transport_retry_attempt_count": 0,
+            "transport_attempt_visibility": (
+                "one_logged_call_per_sdk_attempt"
+            ),
+            "error": error,
+        }
+        _append_call_log(call)
+        calls, _, _ = _cumulative_metadata(messages, call)
+        return (
+            "$ERROR$",
+            0,
+            {
+                "input_tokens": input_tokens,
+                "cached_tokens": cached_tokens,
+                "request_messages": copy.deepcopy(messages),
+                "actual_model": actual_model,
+                "benchmark_calls": calls,
+                "benchmark_error": error,
+            },
+        )
     latency_ms = (time.perf_counter() - started) * 1000
-    if not response.choices:
-        raise RuntimeError("OpenAI returned no completion choices.")
-    output = response.choices[0].message.content
-    if not output:
-        raise RuntimeError("OpenAI returned an empty completion.")
 
     usage = _json_value(getattr(response, "usage", None)) or {}
     input_tokens = int(usage.get("prompt_tokens") or 0)
@@ -610,6 +723,11 @@ def openai_chat_completion(
         "rate_card": rate_card,
         "latency_ms": latency_ms,
         "timestamp": time.time(),
+        "attempt_number": 1,
+        "retry_attempt_count": 0,
+        "transport_max_retries": 0,
+        "transport_retry_attempt_count": 0,
+        "transport_attempt_visibility": "one_logged_call_per_sdk_attempt",
     }
     _append_call_log(call)
     calls, _, cumulative_cost_usd = _cumulative_metadata(messages, call)

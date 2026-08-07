@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kendr.ai/schemas/llm-benchmark-protocol/scorecard-1.0.json",
+  "title": "LLM Benchmark Protocol scorecard bundle",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema_version", "protocol_id", "run_id", "generated_at", "coverage", "systems", "comparisons", "claims"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "protocol_id": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "coverage": {
+      "type": "object",
+      "required": ["expected_observations", "observed_observations", "synthesized_missing_observations", "complete_denominator_enforced"],
+      "properties": {
+        "expected_observations": {"type": "integer", "minimum": 0},
+        "observed_observations": {"type": "integer", "minimum": 0},
+        "synthesized_missing_observations": {"type": "integer", "minimum": 0},
+        "complete_denominator_enforced": {"const": true}
+      }
+    },
+    "systems": {"type": "array", "items": {"type": "object"}},
+    "comparisons": {"type": "array", "items": {"type": "object"}},
+    "claims": {"type": "array", "items": {"type": "object"}},
+    "artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

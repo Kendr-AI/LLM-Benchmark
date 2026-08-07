@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kendr.ai/schemas/llm-benchmark-protocol/frozen-item-1.0.json",
+  "title": "LLM Benchmark Protocol frozen item descriptor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "item_id", "cluster_id", "track", "language", "locale", "modality", "difficulty", "source", "release_date", "content_sha256", "grader_id"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "item_id": {"type": "string", "minLength": 1},
+    "cluster_id": {"type": "string", "minLength": 1},
+    "track": {"type": "string", "minLength": 1},
+    "language": {"type": "string", "minLength": 1},
+    "locale": {"type": "string", "minLength": 1},
+    "modality": {"type": "string", "minLength": 1},
+    "difficulty": {"type": "string", "minLength": 1},
+    "source": {"type": "string", "minLength": 1},
+    "release_date": {"type": "string", "format": "date"},
+    "content_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "grader_id": {"type": "string", "minLength": 1},
+    "production_weight": {"type": ["number", "null"], "minimum": 0},
+    "private_holdout": {"type": "boolean"},
+    "canary": {"type": "boolean"},
+    "provenance_uri": {"type": ["string", "null"], "format": "uri"}
+  }
+}

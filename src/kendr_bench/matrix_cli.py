@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import itertools
 import json
 import os
 import shutil
@@ -20,15 +21,21 @@ from .livebench_cli import (
     _positive_int,
     _run_id,
     _safe_label,
+    _write_artifact_hashes,
+    load_livebench_question_records,
     run_livebench,
     summarize_existing_run,
 )
 from .providers import KENDR_DEFAULT_USD_PER_CREDIT
+from .routing import compute_routing_benchmarks, extract_answer_routes
+from .sampling import SamplingError, select_question_ids
 from .scoring import (
     bootstrap_ci,
     category_scores,
     failed_question_ids,
+    holm_adjust,
     paired_deltas,
+    paired_randomization_test,
     separation_tiers,
     stable_seed,
 )
@@ -41,6 +48,13 @@ DEFAULT_MATRIX_TASKS = (
     "live_bench/math/math_comp",
     "live_bench/reasoning/zebra_puzzle",
 )
+
+
+def _unit_interval(value: str) -> float:
+    parsed = float(value)
+    if not 0 <= parsed <= 1:
+        raise argparse.ArgumentTypeError("must be between zero and one")
+    return parsed
 
 
 @dataclass(frozen=True)
@@ -148,7 +162,7 @@ DEFAULT_MODEL_PANEL = (
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="kendr-benchmark-matrix",
+        prog="llm-benchmark-matrix",
         description=(
             "Run the same LiveBench slice across Kendr, direct OpenAI, and "
             "Kendr-hosted open-weight models, then build a leaderboard."
@@ -176,7 +190,53 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--questions-per-task", type=_positive_int, default=3
     )
+    parser.add_argument(
+        "--sample-mode",
+        choices=("seeded-random", "newest-first"),
+        default="seeded-random",
+        help=(
+            "Deterministic within-task selection mode; never relies on "
+            "dataset row order (default: seeded-random)"
+        ),
+    )
+    parser.add_argument(
+        "--sample-seed",
+        type=int,
+        default=20260801,
+        help="Explicit deterministic sample seed (default: 20260801)",
+    )
+    parser.add_argument(
+        "--minimum-release-date",
+        default=None,
+        help=(
+            "Inclusive YYYY-MM-DD freshness floor. The release option itself "
+            "is cumulative and does not imply this floor."
+        ),
+    )
     parser.add_argument("--max-tokens", type=_positive_int, default=2048)
+    parser.add_argument(
+        "--deadline-ms",
+        type=_positive_int,
+        default=120_000,
+        help=(
+            "Final-answer deadline including retries (default: 120000 ms)"
+        ),
+    )
+    parser.add_argument(
+        "--max-cost-usd-per-answer",
+        type=_positive_decimal,
+        default=None,
+        help="Optional per-question USD budget including retries",
+    )
+    parser.add_argument(
+        "--practical-equivalence-margin",
+        type=_unit_interval,
+        default=0.02,
+        help=(
+            "Absolute score margin used to identify practically equivalent "
+            "paired effects (default: 0.02)"
+        ),
+    )
     parser.add_argument(
         "--parallel-requests", type=_positive_int, default=2
     )
@@ -188,6 +248,14 @@ def _build_parser() -> argparse.ArgumentParser:
         action="append",
         choices=[model.key for model in DEFAULT_MODEL_PANEL],
         help="Panel key to include; repeat to select a subset",
+    )
+    parser.add_argument(
+        "--panel-file",
+        type=Path,
+        help=(
+            "JSON array of ModelSpec objects used instead of the built-in "
+            "panel; enables a frozen provider-catalog campaign"
+        ),
     )
     parser.add_argument(
         "--pricing", type=Path, default=DEFAULT_PRICING_PATH
@@ -209,6 +277,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Required because the default matrix makes chargeable API calls",
     )
     parser.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help=(
+            "Resolve and persist the exact sampled IDs/provenance without "
+            "making provider calls; does not require --confirm-paid-run"
+        ),
+    )
+    parser.add_argument(
         "--rebuild",
         type=Path,
         help=(
@@ -216,10 +292,42 @@ def _build_parser() -> argparse.ArgumentParser:
             "without making API calls"
         ),
     )
+    parser.add_argument(
+        "--resume-matrix",
+        type=Path,
+        help=(
+            "Continue an interrupted paid matrix in place. Completed trials "
+            "with captured provider calls are reused; only panel identities "
+            "with no captured trial are submitted."
+        ),
+    )
     return parser
 
 
-def _selected_panel(keys: Sequence[str] | None) -> list[ModelSpec]:
+def _selected_panel(
+    keys: Sequence[str] | None,
+    panel_file: Path | None = None,
+) -> list[ModelSpec]:
+    if panel_file is not None:
+        if keys:
+            raise RuntimeError("--include cannot be combined with --panel-file")
+        try:
+            raw = json.loads(panel_file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Invalid panel JSON: {exc}") from exc
+        if not isinstance(raw, list) or not raw:
+            raise RuntimeError("Panel file must contain a non-empty JSON array")
+        try:
+            panel = [ModelSpec(**item) for item in raw]
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(f"Invalid ModelSpec in panel file: {exc}") from exc
+        keys_seen = [model.key for model in panel]
+        identities = [(model.provider, model.model) for model in panel]
+        if len(set(keys_seen)) != len(keys_seen):
+            raise RuntimeError("Panel model keys must be unique")
+        if len(set(identities)) != len(identities):
+            raise RuntimeError("Panel provider/model identities must be unique")
+        return panel
     if not keys:
         return list(DEFAULT_MODEL_PANEL)
     selected = set(keys)
@@ -254,18 +362,46 @@ def _category_scores(
     return category_scores(_read_records(path), failed)
 
 
-def _question_scores(path: Path, answers_path: Path) -> dict[str, float]:
+def _question_scores(
+    path: Path,
+    answers_path: Path,
+    planned_question_ids: Sequence[str] | None = None,
+) -> dict[str, float]:
     """Per-question failure-normalized scores, for paired comparisons."""
     failed = _failed_question_ids(answers_path)
-    scores: dict[str, float] = {}
+    answer_ids = {
+        str(record.get("question_id"))
+        for record in _read_records(answers_path)
+        if record.get("question_id")
+    }
+    planned = {
+        str(question_id): 0.0
+        for question_id in (planned_question_ids or [])
+    }
+    scores: dict[str, float] = dict(planned)
     for record in _read_records(path):
         if record.get("score") in (None, -1):
             continue
         question_id = str(record.get("question_id"))
+        if planned and question_id not in planned:
+            continue
         scores[question_id] = (
-            0.0 if question_id in failed else float(record["score"])
+            0.0
+            if question_id in failed or question_id not in answer_ids
+            else float(record["score"])
         )
     return scores
+
+
+def _planned_ids(run_dir: Path) -> list[str]:
+    path = run_dir / "manifest.json"
+    if not path.is_file():
+        return []
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    return [
+        str(question_id)
+        for question_id in (manifest.get("planned_question_ids") or [])
+    ]
 
 
 def _leaderboard_row(
@@ -277,15 +413,45 @@ def _leaderboard_row(
     quality = summary["current_run_quality"]
     efficiency = summary["efficiency"]
     latency = summary["latency"]["end_to_end_ms"]
+    successful_attempt_latency = summary["latency"].get(
+        "successful_attempt_ms", latency
+    )
+    attempt_latency = summary["latency"].get("attempt_ms", {})
     failed_latency = summary["latency"].get("failed_request_ms", {})
     reliability = summary["reliability"]
-    categories = _category_scores(
-        run_dir / "judgments.jsonl", run_dir / "answers.jsonl"
+    cap_conformance = reliability.get(
+        "operational_output_cap_conformance", {}
+    )
+    operations = summary.get("operations") or {}
+    retries = operations.get("retries") or {}
+    operational_question_scores = {
+        str(item["question_id"]): float(
+            item.get("score_weighted_goodput") or 0.0
+        )
+        for item in (operations.get("question_results") or [])
+        if item.get("question_id")
+    }
+    operational_interval = (
+        bootstrap_ci(
+            list(operational_question_scores.values()),
+            seed=stable_seed(f"{spec.key}|operational-goodput"),
+        )
+        if operational_question_scores
+        else {}
+    )
+    categories = dict(
+        quality.get("category_scores")
+        or _category_scores(
+            run_dir / "judgments.jsonl", run_dir / "answers.jsonl"
+        )
     )
     interval = quality.get("quality_ci95") or {}
     successful_answers = reliability["successful_answers"]
     failed_answers = reliability["failed_answers"]
-    attempted_answers = successful_answers + failed_answers
+    attempted_answers = int(
+        quality.get("score_denominator")
+        or successful_answers + failed_answers
+    )
     end_to_end_quality_score = quality["objective_score_mean"]
     conditional_quality_score = _safe_divide(
         quality["quality_points"], successful_answers
@@ -305,6 +471,17 @@ def _leaderboard_row(
         "questions_scored": quality["questions_scored"],
         "quality_points": quality["quality_points"],
         "quality_score": end_to_end_quality_score,
+        "score_weighted_operational_goodput": reliability.get(
+            "score_weighted_goodput", {}
+        ).get("conservative_mean"),
+        "binary_operational_goodput": reliability.get(
+            "operational_goodput", {}
+        ).get("conservative_rate"),
+        "operational_goodput_ci95_low": operational_interval.get("low"),
+        "operational_goodput_ci95_high": operational_interval.get("high"),
+        "operational_goodput_ci95_degenerate": operational_interval.get(
+            "degenerate"
+        ),
         "quality_ci95_low": interval.get("low"),
         "quality_ci95_high": interval.get("high"),
         "quality_ci95_degenerate": interval.get("degenerate"),
@@ -317,15 +494,29 @@ def _leaderboard_row(
         "input_tokens": api["input_tokens"],
         "output_tokens": api["output_tokens"],
         "total_tokens": api["total_tokens"],
+        "token_total_is_lower_bound": bool(
+            api.get("token_total_is_lower_bound")
+        ),
         "cost_usd": api.get("cost_usd"),
+        "cost_total_is_lower_bound": bool(
+            api.get("cost_total_is_lower_bound")
+        ),
         "cost_per_successful_answer": cost_per_successful_answer,
         "kendr_credits": api.get("kendr_credits"),
         "latency_mean_ms": latency["mean"],
         "latency_p50_ms": latency["p50"],
         "latency_p95_ms": latency["p95"],
-        "successful_latency_mean_ms": latency["mean"],
-        "successful_latency_p50_ms": latency["p50"],
-        "successful_latency_p95_ms": latency["p95"],
+        "successful_latency_mean_ms": successful_attempt_latency["mean"],
+        "successful_latency_p50_ms": successful_attempt_latency["p50"],
+        "successful_latency_p95_ms": successful_attempt_latency["p95"],
+        "attempt_latency_p50_ms": attempt_latency.get("p50"),
+        "attempt_latency_p95_ms": attempt_latency.get("p95"),
+        "retry_attempt_amplification": retries.get(
+            "observed_attempt_amplification"
+        ),
+        "retry_latency_amplification": retries.get(
+            "latency_amplification"
+        ),
         "failed_latency_mean_ms": failed_latency.get("mean"),
         "failed_latency_p50_ms": failed_latency.get("p50"),
         "failed_latency_p95_ms": failed_latency.get("p95"),
@@ -347,11 +538,24 @@ def _leaderboard_row(
         "attempted_answers": attempted_answers,
         "successful_answers": successful_answers,
         "failed_answers": failed_answers,
+        "missing_answers": reliability.get("missing_answers", 0),
         "answer_success_rate": reliability["answer_success_rate"],
         "scoring_coverage": reliability["scoring_coverage"],
-        "output_cap_compliance_rate": reliability[
-            "output_cap_compliance_rate"
-        ],
+        "output_cap_compliance_rate": cap_conformance.get(
+            "conservative_rate",
+            reliability["output_cap_compliance_rate"],
+        ),
+        "output_cap_measured_rate": cap_conformance.get(
+            "measured_rate", reliability["output_cap_compliance_rate"]
+        ),
+        "output_cap_unknown_questions": cap_conformance.get("unknown", 0),
+        "deadline_conformance_rate": reliability.get(
+            "deadline_conformance", {}
+        ).get("conservative_rate"),
+        "budget_conformance_rate": reliability.get(
+            "budget_conformance", {}
+        ).get("conservative_rate"),
+        "complete": (summary.get("completeness") or {}).get("complete"),
         "route_distribution": reliability["route_distribution"],
         "provider_error_distribution": reliability[
             "provider_error_distribution"
@@ -360,7 +564,20 @@ def _leaderboard_row(
         # Underscore-prefixed keys stay out of the published CSV/JSON; they only
         # feed tiering and paired comparisons.
         "_question_scores": _question_scores(
-            run_dir / "judgments.jsonl", run_dir / "answers.jsonl"
+            run_dir / "judgments.jsonl",
+            run_dir / "answers.jsonl",
+            _planned_ids(run_dir),
+        ),
+        "_ranking_question_scores": (
+            operational_question_scores
+            or _question_scores(
+                run_dir / "judgments.jsonl",
+                run_dir / "answers.jsonl",
+                _planned_ids(run_dir),
+            )
+        ),
+        "_routes": extract_answer_routes(
+            _read_records(run_dir / "answers.jsonl")
         ),
         "_capability_keys": sorted(categories),
     }
@@ -369,12 +586,24 @@ def _leaderboard_row(
     return row
 
 
-def _ranking_key(row: Mapping[str, Any]) -> tuple[float, float, float]:
-    quality = row.get("quality_score")
-    cost = row.get("cost_usd")
+def _ranking_key(
+    row: Mapping[str, Any],
+) -> tuple[float, float, float, float]:
+    objective_quality = row.get("quality_score")
+    goodput = row.get("score_weighted_operational_goodput")
+    if goodput is None:
+        goodput = objective_quality
+    cost = (
+        None
+        if row.get("cost_total_is_lower_bound")
+        else row.get("cost_usd")
+    )
     latency = row.get("latency_p50_ms")
     return (
-        -float(quality) if quality is not None else float("inf"),
+        -float(goodput) if goodput is not None else float("inf"),
+        -float(objective_quality)
+        if objective_quality is not None
+        else float("inf"),
         float(cost) if cost is not None else float("inf"),
         float(latency) if latency is not None else float("inf"),
     )
@@ -413,7 +642,12 @@ def _write_leaderboard(
     questions_per_task: int,
     max_tokens: int,
     parallel_requests: int,
+    practical_equivalence_margin: float = 0.02,
 ) -> None:
+    if not 0 <= practical_equivalence_margin <= 1:
+        raise ValueError(
+            "practical_equivalence_margin must be between zero and one"
+        )
     ordered = sorted(rows, key=_ranking_key)
     for rank, row in enumerate(ordered, 1):
         row["rank"] = rank
@@ -423,8 +657,18 @@ def _write_leaderboard(
             (
                 row["panel_key"],
                 {
-                    "low": row.get("quality_ci95_low"),
-                    "high": row.get("quality_ci95_high"),
+                    "low": (
+                        row.get("operational_goodput_ci95_low")
+                        if row.get("score_weighted_operational_goodput")
+                        is not None
+                        else row.get("quality_ci95_low")
+                    ),
+                    "high": (
+                        row.get("operational_goodput_ci95_high")
+                        if row.get("score_weighted_operational_goodput")
+                        is not None
+                        else row.get("quality_ci95_high")
+                    ),
                 },
             )
             for row in ordered
@@ -433,14 +677,25 @@ def _write_leaderboard(
     for row in ordered:
         row["tier"] = tiers.get(row["panel_key"])
 
-    # Marginal intervals are the weakest test available on paired data. Each
-    # adjacent pair answered the same questions, so the paired bootstrap is what
-    # actually says whether one outranked the other.
-    adjacent: list[dict[str, Any]] = []
-    for higher, lower in zip(ordered, ordered[1:]):
+    # Pre-specify the full family. Testing only whichever endpoints happen to
+    # land adjacent after observing results is post-selection and ignores the
+    # many comparisons readers naturally make from a leaderboard.
+    pairwise: list[dict[str, Any]] = []
+    raw_p_values: dict[str, float | None] = {}
+    for higher, lower in itertools.combinations(ordered, 2):
+        pair_metric = (
+            "score_weighted_operational_goodput"
+            if higher.get("score_weighted_operational_goodput") is not None
+            and lower.get("score_weighted_operational_goodput") is not None
+            else "objective_score"
+        )
         deltas = paired_deltas(
-            higher.get("_question_scores") or {},
-            lower.get("_question_scores") or {},
+            higher.get("_ranking_question_scores")
+            or higher.get("_question_scores")
+            or {},
+            lower.get("_ranking_question_scores")
+            or lower.get("_question_scores")
+            or {},
         )
         if not deltas:
             continue
@@ -451,10 +706,19 @@ def _write_leaderboard(
             ),
         )
         low, high = interval["low"], interval["high"]
-        adjacent.append(
+        pair_key = f"{higher['panel_key']}|{lower['panel_key']}"
+        randomization = paired_randomization_test(
+            deltas, seed=stable_seed(pair_key)
+        )
+        raw_p_values[pair_key] = randomization["p_value"]
+        pairwise.append(
             {
+                "comparison_id": pair_key,
+                "metric": pair_metric,
                 "higher_ranked": higher["model"],
                 "lower_ranked": lower["model"],
+                "higher_panel_key": higher["panel_key"],
+                "lower_panel_key": lower["panel_key"],
                 "questions_compared": len(deltas),
                 "mean_difference": sum(deltas) / len(deltas),
                 "ci95_low": low,
@@ -464,11 +728,40 @@ def _write_leaderboard(
                     and high is not None
                     and (low > 0 or high < 0)
                 ),
+                "practical_equivalence_margin": (
+                    practical_equivalence_margin
+                ),
+                "practically_equivalent_at_95": bool(
+                    low is not None
+                    and high is not None
+                    and low >= -practical_equivalence_margin
+                    and high <= practical_equivalence_margin
+                ),
+                "randomization_p_value": randomization["p_value"],
+                "randomization_method": randomization["method"],
+                "randomization_permutations": randomization[
+                    "permutations"
+                ],
+                "nonzero_pairs": randomization["nonzero_pairs"],
                 "wins_higher_ranked": sum(delta > 0 for delta in deltas),
                 "wins_lower_ranked": sum(delta < 0 for delta in deltas),
                 "ties": sum(delta == 0 for delta in deltas),
             }
         )
+    adjusted = holm_adjust(raw_p_values)
+    for item in pairwise:
+        adjusted_p = adjusted[item["comparison_id"]]
+        item["holm_adjusted_p_value"] = adjusted_p
+        item["separates_at_fwer_05"] = bool(
+            adjusted_p is not None and adjusted_p <= 0.05
+        )
+    adjacent_keys = {
+        f"{higher['panel_key']}|{lower['panel_key']}"
+        for higher, lower in zip(ordered, ordered[1:])
+    }
+    adjacent = [
+        item for item in pairwise if item["comparison_id"] in adjacent_keys
+    ]
 
     # Discover capabilities from what each run actually graded. Scanning for a
     # "_score" suffix also swept up the two overall-quality columns and rendered
@@ -480,6 +773,7 @@ def _write_leaderboard(
             for key in (row.get("_capability_keys") or [])
         }
     )
+    routing_benchmarks = compute_routing_benchmarks(ordered)
     published = [
         {
             key: value
@@ -497,13 +791,25 @@ def _write_leaderboard(
         "requested_max_output_tokens": max_tokens,
         "parallel_requests": parallel_requests,
         "ranking_rule": (
-            "Official question-weighted LiveBench objective score descending; "
-            "estimated/reported USD then p50 latency ascending as tie-breakers. "
-            "Rank order is finer than the sample resolves: use `tier` and "
-            "`adjacent_pair_tests` to judge which gaps are real."
+            "Conservative score-weighted operational goodput descending when "
+            "available, otherwise official question-weighted objective score; "
+            "objective quality, complete estimated/reported USD, then cumulative "
+            "final-answer p50 latency are tie-breakers. "
+            "Rank order is finer than the sample resolves. `tier` is a "
+            "descriptive marginal-interval grouping only; inferential claims "
+            "use paired randomization tests with Holm family-wise correction."
         ),
         "results": published,
+        "pairwise_test_family": {
+            "comparisons": len(pairwise),
+            "test": "two-sided paired sign-randomization",
+            "multiplicity_correction": "Holm family-wise error rate",
+            "alpha": 0.05,
+            "practical_equivalence_margin": practical_equivalence_margin,
+        },
+        "pairwise_tests": pairwise,
         "adjacent_pair_tests": adjacent,
+        "routing_benchmarks": routing_benchmarks,
         "failures": failures,
     }
     (root / "leaderboard.json").write_text(
@@ -541,42 +847,67 @@ def _write_leaderboard(
         "",
         "## Overall leaderboard",
         "",
-        "Ranks are printed in full for traceability, but adjacent ranks are "
-        "routinely closer than this sample can resolve. Models sharing a tier "
-        "are not separated at 95% confidence.",
+        "Ranks are printed in full for traceability. Tiers only group "
+        "overlapping marginal intervals; they neither prove a difference nor "
+        "prove equivalence. The paired tests below are the inferential result.",
         "",
-        "| Rank | Tier | Model | Access | E2E quality | 95% CI | "
+        "| Rank | Tier | Model | Access | Goodput | E2E quality | Ranking "
+        "95% CI | "
         "Conditional quality | "
-        "Availability | Scored | Cost | p50 success latency | "
+        "Availability | Scored | Cost | p50 final-answer latency | "
         "p50 failed latency | Total tokens | Tokens / quality point | "
         "Cap compliance |",
-        "|---:|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "|---:|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in ordered:
-        ci_low = row.get("quality_ci95_low")
-        ci_high = row.get("quality_ci95_high")
+        has_goodput = row.get("score_weighted_operational_goodput") is not None
+        ci_low = (
+            row.get("operational_goodput_ci95_low")
+            if has_goodput
+            else row.get("quality_ci95_low")
+        )
+        ci_high = (
+            row.get("operational_goodput_ci95_high")
+            if has_goodput
+            else row.get("quality_ci95_high")
+        )
+        ci_degenerate = (
+            row.get("operational_goodput_ci95_degenerate")
+            if has_goodput
+            else row.get("quality_ci95_degenerate")
+        )
         ci_text = (
             f"{_percent(ci_low)}–{_percent(ci_high)}"
-            + ("*" if row.get("quality_ci95_degenerate") else "")
+            + ("*" if ci_degenerate else "")
             if ci_low is not None and ci_high is not None
             else "n/a"
         )
         lines.append(
             f"| {row['rank']} | {row.get('tier') or 'n/a'} | {row['model']} | "
             f"{row['access']} | "
+            f"{_percent(row.get('score_weighted_operational_goodput'))} | "
             f"{_percent(row.get('end_to_end_quality_score', row.get('quality_score')))} | "
             f"{ci_text} | "
             f"{_percent(row.get('conditional_quality_score'))} | "
             f"{_percent(row.get('availability', row.get('answer_success_rate')))} | "
-            f"{row['questions_scored']} | {_money(row['cost_usd'])} | "
+            f"{row['questions_scored']} | "
+            f"{'≥' if row.get('cost_total_is_lower_bound') else ''}"
+            f"{_money(row['cost_usd'])} | "
             f"{_number(row['latency_p50_ms'])} ms | "
             f"{_number(row.get('failed_latency_p50_ms'))} ms | "
+            f"{'≥' if row.get('token_total_is_lower_bound') else ''}"
             f"{row['total_tokens']:,} | "
+            f"{'≥' if row.get('token_total_is_lower_bound') else ''}"
             f"{_number(row['tokens_per_quality_point'])} | "
             f"{_percent(row['output_cap_compliance_rate'])} |"
         )
 
-    if any(row.get("quality_ci95_degenerate") for row in ordered):
+    if any(
+        row.get("operational_goodput_ci95_degenerate")
+        if row.get("score_weighted_operational_goodput") is not None
+        else row.get("quality_ci95_degenerate")
+        for row in ordered
+    ):
         lines.extend(
             [
                 "",
@@ -592,17 +923,19 @@ def _write_leaderboard(
         lines.extend(
             [
                 "",
-                "## Does each rank gap survive a paired test?",
+                "## Do adjacent rank gaps survive the pre-specified test family?",
                 "",
-                "Each row resamples the per-question differences between two "
-                "adjacent ranks, which is the only test that uses the fact "
-                "that both answered the same questions.",
+                "All endpoint pairs are tested with a two-sided paired sign-"
+                "randomization test, then corrected together with Holm's "
+                "family-wise procedure. This table shows the adjacent subset; "
+                "`leaderboard.json` contains the complete family.",
                 "",
                 "| Higher rank | Lower rank | Mean difference | 95% CI | "
-                "W/L/T | Separated at 95%? |",
-                "|---|---|---:|---:|---:|---|",
+                "W/L/T | Raw p | Holm p | FWER 5%? | Equivalent? |",
+                "|---|---|---:|---:|---:|---:|---:|---|---|",
             ]
         )
+
         for item in adjacent:
             lines.append(
                 f"| {item['higher_ranked']} | {item['lower_ranked']} | "
@@ -611,15 +944,70 @@ def _write_leaderboard(
                 f"{_percent(item['ci95_high'])} | "
                 f"{item['wins_higher_ranked']}/"
                 f"{item['wins_lower_ranked']}/{item['ties']} | "
-                f"{'yes' if item['separates_at_95'] else 'no'} |"
+                f"{_number(item['randomization_p_value'], 4)} | "
+                f"{_number(item['holm_adjusted_p_value'], 4)} | "
+                f"{'yes' if item['separates_at_fwer_05'] else 'no'} | "
+                f"{'yes' if item['practically_equivalent_at_95'] else 'no'} |"
             )
-        separated = sum(item["separates_at_95"] for item in adjacent)
+        separated = sum(
+            item["separates_at_fwer_05"] for item in adjacent
+        )
+        equivalent = sum(
+            item["practically_equivalent_at_95"] for item in adjacent
+        )
         lines.extend(
             [
                 "",
                 f"{separated} of {len(adjacent)} adjacent gaps are separated "
-                "at 95% confidence. Unseparated gaps are ordering noise, not "
-                "measured differences.",
+                "at family-wise 5%; "
+                f"{equivalent} are contained within the predeclared +/-"
+                f"{practical_equivalence_margin:.3f} practical margin. A gap "
+                "that is neither significant nor equivalent is unresolved, "
+                "not a tie.",
+            ]
+        )
+
+    if routing_benchmarks.get("available"):
+        router_metrics = routing_benchmarks["router"]
+        best_single = routing_benchmarks["best_single_endpoint"]
+        selection = routing_benchmarks[
+            "observed_selection_counterfactual"
+        ]
+        calibration = routing_benchmarks["confidence_calibration"]
+        lines.extend(
+            [
+                "",
+                "## Router counterfactuals",
+                "",
+                routing_benchmarks["scope"],
+                "",
+                "| Routed score | Best single | Random endpoint | Panel "
+                "oracle | Panel-oracle gap | Uplift vs best single |",
+                "|---:|---:|---:|---:|---:|---:|",
+                f"| {_percent(router_metrics['score'])} | "
+                f"{best_single['model']} "
+                f"({_percent(best_single['score'])}) | "
+                f"{_percent(routing_benchmarks['random_endpoint_expected_score'])} | "
+                f"{_percent(routing_benchmarks['panel_oracle_score'])} | "
+                f"{_percent(router_metrics['gap_to_panel_oracle'])} | "
+                f"{_percent(router_metrics['uplift_over_best_single'])} |",
+                "",
+                f"Observed selected-model counterfactual coverage: "
+                f"{selection['matched_to_panel_endpoint']}/"
+                f"{routing_benchmarks['questions']} planned questions "
+                f"({_percent(selection['coverage_of_planned_questions'])}). "
+                "Unmatched routes are not silently imputed.",
+                "",
+                f"Router-confidence calibration coverage: "
+                f"{calibration['measured_questions']}/"
+                f"{routing_benchmarks['questions']}; Brier score against "
+                "realized objective quality: "
+                f"{_number(calibration['brier_score_against_realized_quality'], 4)}; "
+                "expected calibration error: "
+                f"{_number(calibration['expected_calibration_error'], 4)}. "
+                f"{calibration['warning']} With only this small set of soft "
+                "objective-score targets, these values diagnose confidence–"
+                "score mismatch rather than establish general calibration.",
             ]
         )
 
@@ -630,8 +1018,14 @@ def _write_leaderboard(
     baseline_usd_per_quality = (
         baseline.get("usd_per_quality_point") if baseline else None
     )
+    baseline_cost_is_lower_bound = bool(
+        baseline and baseline.get("cost_total_is_lower_bound")
+    )
     baseline_tokens_per_quality = (
         baseline.get("tokens_per_quality_point") if baseline else None
+    )
+    baseline_tokens_are_lower_bound = bool(
+        baseline and baseline.get("token_total_is_lower_bound")
     )
     lines.extend(
         [
@@ -662,6 +1056,17 @@ def _write_leaderboard(
             and usd_per_quality not in (None, 0)
             else None
         )
+        row_cost_is_lower_bound = bool(
+            row.get("cost_total_is_lower_bound")
+        )
+        if row_cost_is_lower_bound and baseline_cost_is_lower_bound:
+            cost_index_text = "n/a"
+        elif row_cost_is_lower_bound:
+            cost_index_text = f"≤{_multiplier(cost_index)}"
+        elif baseline_cost_is_lower_bound:
+            cost_index_text = f"≥{_multiplier(cost_index)}"
+        else:
+            cost_index_text = _multiplier(cost_index)
         token_index = (
             float(baseline_tokens_per_quality)
             / float(tokens_per_quality)
@@ -670,15 +1075,29 @@ def _write_leaderboard(
             and tokens_per_quality not in (None, 0)
             else None
         )
+        row_tokens_are_lower_bound = bool(
+            row.get("token_total_is_lower_bound")
+        )
+        if row_tokens_are_lower_bound and baseline_tokens_are_lower_bound:
+            token_index_text = "n/a"
+        elif row_tokens_are_lower_bound:
+            token_index_text = f"≤{_multiplier(token_index)}"
+        elif baseline_tokens_are_lower_bound:
+            token_index_text = f"≥{_multiplier(token_index)}"
+        else:
+            token_index_text = _multiplier(token_index)
         lines.append(
             f"| {row['model']} | "
             f"{_number(row.get('quality_points'), 3)} | "
+            f"{'≥' if row.get('cost_total_is_lower_bound') else ''}"
             f"{_money(row['cost_usd'])} | "
             f"{_number(row.get('kendr_credits'), 6)} | "
+            f"{'≥' if row_cost_is_lower_bound else ''}"
             f"{_money(usd_per_quality)} | "
+            f"{'≥' if row_tokens_are_lower_bound else ''}"
             f"{_number(tokens_per_quality)} | "
-            f"{_multiplier(cost_index)} | "
-            f"{_multiplier(token_index)} |"
+            f"{cost_index_text} | "
+            f"{token_index_text} |"
         )
 
     if categories:
@@ -712,12 +1131,11 @@ def _write_leaderboard(
             "|---|---|---|---|",
         ]
     )
-    by_key = {model.key: model for model in DEFAULT_MODEL_PANEL}
     for row in ordered:
-        spec = by_key[row["panel_key"]]
         lines.append(
-            f"| {spec.label} | `{spec.model}` | {spec.access} | "
-            f"[{spec.license}]({spec.license_source}) |"
+            f"| {row['model']} | `{row['requested_model']}` | "
+            f"{row['access']} | "
+            f"[{row['license']}]({row['license_source']}) |"
         )
 
     lines.extend(
@@ -725,8 +1143,8 @@ def _write_leaderboard(
             "",
             "## Endpoint reliability",
             "",
-            "| Model | Successful / attempted | Provider errors | "
-            "Selected routes |",
+            "| Model | Final successes / planned | Attempt-level provider errors | "
+            "Attempt-level selected routes |",
             "|---|---:|---|---|",
         ]
     )
@@ -777,19 +1195,23 @@ def _write_leaderboard(
             "Its tokens-per-quality-point is understated relative to a direct "
             "endpoint's.",
             f"- Requests ran at concurrency {parallel_requests}, so latency is "
-            "measured under load and is higher than a single-request "
-            "measurement would be. The load is the same for every model, so "
-            "ordering is comparable while absolute values are not.",
-            "- Cap compliance below 100% means that endpoint was not held to "
-            "the requested output budget. Token and cost comparisons against a "
-            "fully compliant endpoint are biased in favor of whichever one was "
-            "allowed to generate more.",
+            "measured under load rather than as isolated single requests. "
+            "Endpoints ran in sequential blocks with one generation per "
+            "question, so latency ordering is descriptive and may include "
+            "time-of-run effects.",
+            "- The cap column is conservative question-level conformance: "
+            "unknown failed-attempt usage counts against the rate. A value "
+            "below 100% means the output budget was violated or could not be "
+            "verified, so token and cost comparisons need qualification.",
+            "- `≥` and `≤` mark one-sided bounds when failed attempts lack "
+            "usage or cost telemetry. Derived token/cost efficiency inherits "
+            "the corresponding bound rather than being printed as exact.",
             "- Time to first token is unavailable because the instrumented "
             "path is non-streaming. Latency is client-observed end-to-end.",
-            "- Retry visibility differs by provider: Kendr retries are "
-            "explicit and logged as separate attempts, while the OpenAI client "
-            "retries inside the transport. Raw-attempt reliability is therefore "
-            "not comparable across the two paths.",
+            "- The current direct-OpenAI adapter disables hidden SDK retries; "
+            "Kendr application retries and any benchmark-layer OpenAI retries "
+            "are logged as separate attempts. Historical artifacts created "
+            "before this policy may not have comparable attempt visibility.",
             "- Open-weight means model weights are available under the linked "
             "upstream terms. It does not imply every license is OSI-approved.",
             "- The latest classic LiveBench release has no active classic "
@@ -808,6 +1230,7 @@ def _write_leaderboard(
     (root / "leaderboard.md").write_text(
         "\n".join(lines) + "\n", encoding="utf-8"
     )
+    _write_artifact_hashes(root)
 
 
 def _catalog_snapshot(path: Path) -> None:
@@ -835,15 +1258,82 @@ def _publish_latest(matrix_root: Path) -> None:
         )
 
 
+def _require_complete_panel(
+    *,
+    rows: Sequence[Mapping[str, Any]],
+    failures: Sequence[Mapping[str, Any]],
+    expected_count: int,
+    matrix_root: Path,
+) -> None:
+    """Prevent a partial matrix from becoming the successful latest result."""
+    explicitly_incomplete = [
+        row for row in rows if row.get("complete") is False
+    ]
+    if (
+        not failures
+        and not explicitly_incomplete
+        and len(rows) == expected_count
+    ):
+        return
+    eligible_count = len(rows) - len(explicitly_incomplete)
+    raise RuntimeError(
+        "Matrix is incomplete: "
+        f"{eligible_count}/{expected_count} endpoints produced eligible results; "
+        f"{len(failures)} failed. Partial artifacts were preserved at "
+        f"{matrix_root}; latest was not updated."
+    )
+
+
+def _select_rebuild_run(
+    run_dirs: Sequence[Path],
+) -> tuple[Path | None, list[Path]]:
+    """Select the first provider trial, never the cleanest later rerun.
+
+    Manifest-only starts have no model outcome and may be skipped. Once a run
+    has captured at least one provider call, it is the experiment for that
+    endpoint. Choosing a later successful rerun after observing those calls is
+    survivorship bias; an interrupted first trial must instead be finalized or
+    remain an explicit matrix failure.
+    """
+    attempted: list[Path] = []
+    for run_dir in sorted(run_dirs):
+        call_log = run_dir / "calls.jsonl"
+        if call_log.is_file() and call_log.stat().st_size > 0:
+            attempted.append(run_dir)
+    return (attempted[0] if attempted else None), attempted
+
+
 def run_matrix(args: argparse.Namespace) -> Path:
-    if not args.confirm_paid_run:
+    if not args.confirm_paid_run and not getattr(
+        args, "preflight_only", False
+    ):
         raise RuntimeError(
             "The multi-model matrix is chargeable. Re-run with "
             "--confirm-paid-run after reviewing the selected panel and sample."
         )
     load_environment(args.env_file, disabled=args.no_env_file)
-    panel = _selected_panel(args.include)
+    panel = _selected_panel(args.include, getattr(args, "panel_file", None))
     tasks = tuple(args.tasks or DEFAULT_MATRIX_TASKS)
+    try:
+        source_questions = load_livebench_question_records(
+            tasks, args.release
+        )
+        sampling = select_question_ids(
+            source_questions,
+            questions_per_stratum=args.questions_per_task,
+            stratify_by=("category", "task"),
+            seed=args.sample_seed,
+            minimum_release_date=args.minimum_release_date,
+            mode=args.sample_mode,
+        )
+    except SamplingError as exc:
+        raise RuntimeError(f"Sample preflight failed: {exc}") from exc
+    source_by_id = {
+        str(record["question_id"]): record for record in source_questions
+    }
+    planned_questions = [
+        source_by_id[question_id] for question_id in sampling.selected_ids
+    ]
     matrix_id = _run_id(args.label)
     matrix_root = (args.output / matrix_id).resolve()
     matrix_root.mkdir(parents=True, exist_ok=False)
@@ -857,7 +1347,17 @@ def run_matrix(args: argparse.Namespace) -> Path:
         "livebench_release": args.release,
         "tasks": tasks,
         "questions_per_task": args.questions_per_task,
+        "sampling": sampling.to_dict(),
         "max_tokens": args.max_tokens,
+        "deadline_ms": args.deadline_ms,
+        "max_cost_usd_per_answer": (
+            format(args.max_cost_usd_per_answer, "f")
+            if args.max_cost_usd_per_answer is not None
+            else None
+        ),
+        "practical_equivalence_margin": (
+            args.practical_equivalence_margin
+        ),
         "parallel_requests": args.parallel_requests,
         "parallel_grading": args.parallel_grading,
         "reasoning_effort": args.reasoning_effort,
@@ -865,11 +1365,46 @@ def run_matrix(args: argparse.Namespace) -> Path:
         "kendr_usd_per_credit": format(
             args.kendr_usd_per_credit, "f"
         ),
+        "preflight_only": bool(getattr(args, "preflight_only", False)),
+        "panel_file": (
+            str(args.panel_file.resolve())
+            if getattr(args, "panel_file", None) is not None
+            else None
+        ),
     }
     (matrix_root / "manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
+    if getattr(args, "preflight_only", False):
+        (matrix_root / "sample-plan.json").write_text(
+            json.dumps(
+                {
+                    "matrix_id": matrix_id,
+                    "livebench_release": args.release,
+                    "tasks": list(tasks),
+                    "sampling": sampling.to_dict(),
+                    "planned_questions": [
+                        {
+                            "question_id": str(record["question_id"]),
+                            "category": str(record.get("category")),
+                            "task": str(record.get("task")),
+                            "livebench_release_date": str(
+                                record.get("livebench_release_date")
+                            ),
+                        }
+                        for record in planned_questions
+                    ],
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        _write_artifact_hashes(matrix_root)
+        return matrix_root
+
     _catalog_snapshot(matrix_root / "kendr_model_catalog.json")
 
     rows: list[dict[str, Any]] = []
@@ -894,15 +1429,24 @@ def run_matrix(args: argparse.Namespace) -> Path:
             livebench_release_option=args.release,
             max_tokens=args.max_tokens,
             parallel_requests=args.parallel_requests,
+            practical_equivalence_margin=(
+                args.practical_equivalence_margin
+            ),
             parallel_grading=args.parallel_grading,
-            question_begin=0,
-            question_end=args.questions_per_task,
-            question_id=None,
+            question_begin=None,
+            question_end=None,
+            question_id=list(sampling.selected_ids),
+            planned_questions=planned_questions,
+            planned_question_ids=list(sampling.selected_ids),
+            sampling_provenance=sampling.to_dict(),
             resume=False,
             retry_failures=False,
             skip_inference=False,
             skip_grading=False,
             ignore_missing_answers=True,
+            deadline_ms=args.deadline_ms,
+            max_cost_usd_per_answer=args.max_cost_usd_per_answer,
+            allow_incomplete=False,
             kendr_usd_per_credit=args.kendr_usd_per_credit,
             output=runs_root,
             label=spec.key,
@@ -929,8 +1473,17 @@ def run_matrix(args: argparse.Namespace) -> Path:
             questions_per_task=args.questions_per_task,
             max_tokens=args.max_tokens,
             parallel_requests=args.parallel_requests,
+            practical_equivalence_margin=(
+                args.practical_equivalence_margin
+            ),
         )
 
+    _require_complete_panel(
+        rows=rows,
+        failures=failures,
+        expected_count=len(panel),
+        matrix_root=matrix_root,
+    )
     _publish_latest(matrix_root)
     return matrix_root
 
@@ -941,9 +1494,10 @@ def rebuild_matrix(matrix_root: Path, livebench_root: Path) -> Path:
     if not manifest_path.is_file():
         raise RuntimeError(f"Matrix manifest not found: {manifest_path}")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    expected_sampling = manifest.get("sampling") or {}
     specs = [ModelSpec(**item) for item in manifest["models"]]
     run_dirs = sorted((matrix_root / "runs").glob("*"))
-    by_identity: dict[tuple[str, str], Path] = {}
+    by_identity: dict[tuple[str, str], list[Path]] = {}
     for run_dir in run_dirs:
         run_manifest_path = run_dir / "manifest.json"
         if not run_manifest_path.is_file():
@@ -951,12 +1505,24 @@ def rebuild_matrix(matrix_root: Path, livebench_root: Path) -> Path:
         run_manifest = json.loads(
             run_manifest_path.read_text(encoding="utf-8")
         )
-        by_identity[
+        run_sampling = run_manifest.get("sampling") or {}
+        if expected_sampling and (
+            run_sampling.get("content_hash")
+            != expected_sampling.get("content_hash")
+            or run_sampling.get("selected_ids")
+            != expected_sampling.get("selected_ids")
+        ):
+            raise RuntimeError(
+                f"Run {run_dir.name} does not match the matrix sampling "
+                "content hash and selected IDs."
+            )
+        by_identity.setdefault(
             (
                 str(run_manifest.get("provider") or "kendr"),
                 str(run_manifest.get("requested_model")),
-            )
-        ] = run_dir
+            ),
+            [],
+        ).append(run_dir)
 
     rows: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
@@ -967,10 +1533,14 @@ def rebuild_matrix(matrix_root: Path, livebench_root: Path) -> Path:
         )
     )
     for spec in specs:
-        run_dir = by_identity.get((spec.provider, spec.model))
+        candidates = by_identity.get((spec.provider, spec.model)) or []
+        run_dir, attempted_runs = _select_rebuild_run(candidates)
         if run_dir is None:
             failures.append(
-                {"model": spec.label, "error": "Run directory not found"}
+                {
+                    "model": spec.label,
+                    "error": "No run with captured provider calls found",
+                }
             )
             continue
         try:
@@ -979,7 +1549,19 @@ def rebuild_matrix(matrix_root: Path, livebench_root: Path) -> Path:
                 livebench_root=livebench_root,
                 usd_per_credit=usd_per_credit,
             )
-            rows.append(_leaderboard_row(spec, run_dir, summary))
+            if (summary.get("completeness") or {}).get("complete") is False:
+                raise RuntimeError(
+                    "Earliest captured provider trial is incomplete; a later "
+                    "rerun was not substituted. Finalize or diagnose the "
+                    "first trial."
+                )
+            row = _leaderboard_row(spec, run_dir, summary)
+            row["run_selection_policy"] = "earliest-captured-provider-trial"
+            row["captured_trial_count"] = len(attempted_runs)
+            row["excluded_later_trial_run_ids"] = [
+                candidate.name for candidate in attempted_runs[1:]
+            ]
+            rows.append(row)
         except Exception as exc:
             failures.append(
                 {
@@ -998,6 +1580,216 @@ def rebuild_matrix(matrix_root: Path, livebench_root: Path) -> Path:
         questions_per_task=int(manifest["questions_per_task"]),
         max_tokens=int(manifest["max_tokens"]),
         parallel_requests=int(manifest["parallel_requests"]),
+        practical_equivalence_margin=float(
+            manifest.get("practical_equivalence_margin", 0.02)
+        ),
+    )
+    _require_complete_panel(
+        rows=rows,
+        failures=failures,
+        expected_count=len(specs),
+        matrix_root=matrix_root,
+    )
+    _publish_latest(matrix_root)
+    return matrix_root
+
+
+def resume_matrix(
+    matrix_root: Path,
+    livebench_root: Path,
+    *,
+    env_file: Path,
+    no_env_file: bool,
+) -> Path:
+    """Continue a frozen matrix without replacing captured provider trials."""
+    load_environment(env_file, disabled=no_env_file)
+    matrix_root = matrix_root.resolve()
+    manifest_path = matrix_root / "manifest.json"
+    if not manifest_path.is_file():
+        raise RuntimeError(f"Matrix manifest not found: {manifest_path}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("preflight_only"):
+        raise RuntimeError("A preflight-only matrix cannot be resumed in place")
+
+    specs = [ModelSpec(**item) for item in manifest["models"]]
+    runs_root = matrix_root / "runs"
+    runs_root.mkdir(exist_ok=True)
+    expected_sampling = manifest.get("sampling") or {}
+    expected_ids = list(expected_sampling.get("selected_ids") or [])
+    if not expected_ids:
+        raise RuntimeError("Frozen matrix manifest has no selected question IDs")
+
+    planned_questions: list[dict[str, Any]] | None = None
+    for candidate in sorted(runs_root.glob("*")):
+        candidate_manifest_path = candidate / "manifest.json"
+        if not candidate_manifest_path.is_file():
+            continue
+        candidate_manifest = json.loads(
+            candidate_manifest_path.read_text(encoding="utf-8")
+        )
+        candidate_sampling = candidate_manifest.get("sampling") or {}
+        if (
+            candidate_sampling.get("content_hash")
+            == expected_sampling.get("content_hash")
+            and candidate_sampling.get("selected_ids") == expected_ids
+            and candidate_manifest.get("planned_questions")
+        ):
+            planned_questions = list(candidate_manifest["planned_questions"])
+            break
+    if planned_questions is None:
+        raise RuntimeError(
+            "No matching captured run contains the frozen question descriptors; "
+            "resume cannot safely reconstruct the study."
+        )
+
+    def captured_candidates(spec: ModelSpec) -> list[Path]:
+        matches: list[Path] = []
+        for candidate in sorted(runs_root.glob("*")):
+            candidate_manifest_path = candidate / "manifest.json"
+            call_log = candidate / "calls.jsonl"
+            if (
+                not candidate_manifest_path.is_file()
+                or not call_log.is_file()
+                or call_log.stat().st_size <= 0
+            ):
+                continue
+            candidate_manifest = json.loads(
+                candidate_manifest_path.read_text(encoding="utf-8")
+            )
+            candidate_sampling = candidate_manifest.get("sampling") or {}
+            if (
+                str(candidate_manifest.get("provider") or "kendr") == spec.provider
+                and str(candidate_manifest.get("requested_model")) == spec.model
+                and candidate_sampling.get("content_hash")
+                == expected_sampling.get("content_hash")
+                and candidate_sampling.get("selected_ids") == expected_ids
+            ):
+                matches.append(candidate)
+        return matches
+
+    usd_per_credit = Decimal(
+        str(
+            manifest.get("kendr_usd_per_credit")
+            or KENDR_DEFAULT_USD_PER_CREDIT
+        )
+    )
+    max_cost = manifest.get("max_cost_usd_per_answer")
+    rows: list[dict[str, Any]] = []
+    failures: list[dict[str, str]] = []
+    suffix = _safe_label(str(manifest["matrix_id"]))[-12:]
+    tasks = tuple(manifest["tasks"])
+
+    for index, spec in enumerate(specs, 1):
+        candidates = captured_candidates(spec)
+        selected, attempted = _select_rebuild_run(candidates)
+        if selected is not None:
+            print(
+                f"\n[{index}/{len(specs)}] Reusing captured trial for "
+                f"{spec.label} ({selected.name})"
+            )
+            try:
+                summary = summarize_existing_run(
+                    selected,
+                    livebench_root=livebench_root,
+                    usd_per_credit=usd_per_credit,
+                )
+                if (summary.get("completeness") or {}).get("complete") is False:
+                    raise RuntimeError(
+                        "Earliest captured provider trial is incomplete; it "
+                        "was preserved and not replaced by a clean rerun."
+                    )
+                row = _leaderboard_row(spec, selected, summary)
+                row["run_selection_policy"] = (
+                    "earliest-captured-provider-trial"
+                )
+                row["captured_trial_count"] = len(attempted)
+                row["excluded_later_trial_run_ids"] = [
+                    path.name for path in attempted[1:]
+                ]
+                rows.append(row)
+            except Exception as exc:
+                failures.append(
+                    {
+                        "model": spec.label,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                )
+        else:
+            print(
+                f"\n[{index}/{len(specs)}] Resuming with new trial for "
+                f"{spec.label} ({spec.provider}:{spec.model})"
+            )
+            run_args = argparse.Namespace(
+                livebench_root=livebench_root,
+                env_file=env_file,
+                no_env_file=no_env_file,
+                provider=spec.provider,
+                model=spec.model,
+                model_display_name=_safe_label(f"{spec.key}-{suffix}"),
+                api_base=None,
+                reasoning_effort=manifest.get("reasoning_effort", "none"),
+                pricing=Path(manifest["pricing_catalog"]),
+                bench_name=list(tasks),
+                livebench_release_option=str(manifest["livebench_release"]),
+                max_tokens=int(manifest["max_tokens"]),
+                parallel_requests=int(manifest["parallel_requests"]),
+                practical_equivalence_margin=float(
+                    manifest.get("practical_equivalence_margin", 0.02)
+                ),
+                parallel_grading=int(manifest["parallel_grading"]),
+                question_begin=None,
+                question_end=None,
+                question_id=list(expected_ids),
+                planned_questions=planned_questions,
+                planned_question_ids=list(expected_ids),
+                sampling_provenance=expected_sampling,
+                resume=False,
+                retry_failures=False,
+                skip_inference=False,
+                skip_grading=False,
+                ignore_missing_answers=True,
+                deadline_ms=int(manifest["deadline_ms"]),
+                max_cost_usd_per_answer=(
+                    Decimal(str(max_cost)) if max_cost is not None else None
+                ),
+                allow_incomplete=False,
+                kendr_usd_per_credit=usd_per_credit,
+                output=runs_root,
+                label=spec.key,
+                confirm_full=False,
+                compare_model=[],
+            )
+            try:
+                run_dir, summary = run_livebench(run_args)
+                rows.append(_leaderboard_row(spec, run_dir, summary))
+            except Exception as exc:
+                failures.append(
+                    {
+                        "model": spec.label,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                )
+
+        _write_leaderboard(
+            matrix_root,
+            matrix_id=str(manifest["matrix_id"]),
+            rows=rows,
+            failures=failures,
+            tasks=tasks,
+            release=str(manifest["livebench_release"]),
+            questions_per_task=int(manifest["questions_per_task"]),
+            max_tokens=int(manifest["max_tokens"]),
+            parallel_requests=int(manifest["parallel_requests"]),
+            practical_equivalence_margin=float(
+                manifest.get("practical_equivalence_margin", 0.02)
+            ),
+        )
+
+    _require_complete_panel(
+        rows=rows,
+        failures=failures,
+        expected_count=len(specs),
+        matrix_root=matrix_root,
     )
     _publish_latest(matrix_root)
     return matrix_root
@@ -1005,16 +1797,32 @@ def rebuild_matrix(matrix_root: Path, livebench_root: Path) -> Path:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    try:
-        root = (
-            rebuild_matrix(args.rebuild, args.livebench_root)
-            if args.rebuild
-            else run_matrix(args)
+    if args.rebuild and args.resume_matrix:
+        print(
+            "llm-benchmark-matrix failed: --rebuild and --resume-matrix "
+            "are mutually exclusive",
+            file=sys.stderr,
         )
-    except (OSError, RuntimeError) as exc:
-        print(f"kendr-benchmark-matrix failed: {exc}", file=sys.stderr)
         return 1
-    print(f"\nLeaderboard: {root / 'leaderboard.md'}")
+    try:
+        if args.rebuild:
+            root = rebuild_matrix(args.rebuild, args.livebench_root)
+        elif args.resume_matrix:
+            root = resume_matrix(
+                args.resume_matrix,
+                args.livebench_root,
+                env_file=args.env_file,
+                no_env_file=args.no_env_file,
+            )
+        else:
+            root = run_matrix(args)
+    except (OSError, RuntimeError) as exc:
+        print(f"llm-benchmark-matrix failed: {exc}", file=sys.stderr)
+        return 1
+    if args.preflight_only and not args.rebuild and not args.resume_matrix:
+        print(f"\nSample plan: {root / 'sample-plan.json'}")
+    else:
+        print(f"\nLeaderboard: {root / 'leaderboard.md'}")
     return 0
 
 

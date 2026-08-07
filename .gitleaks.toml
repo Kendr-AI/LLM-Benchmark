@@ -1,0 +1,12 @@
+title = "LLM Benchmark Protocol secret-scanning configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Frozen public catalog endpoint IDs stored in the panel key field"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+regexes = ['''^\s*"key":\s*"kc-[A-Za-z0-9_.:-]+",?\s*$''']
+paths = ['''^config/kendr-catalog-text-panel-20260807\.json$''']

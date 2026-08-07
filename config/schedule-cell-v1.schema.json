@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kendr.ai/schemas/llm-benchmark-protocol/schedule-cell-1.0.json",
+  "title": "LLM Benchmark Protocol frozen schedule cell",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "schedule_id", "protocol_id", "system_id", "item_id", "cluster_id", "track", "repeat", "day", "region", "block_position", "language", "locale", "modality", "difficulty", "deadline_ms", "budget_usd", "output_cap_tokens", "seed"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "schedule_id": {"type": "string", "minLength": 1},
+    "protocol_id": {"type": "string", "minLength": 1},
+    "system_id": {"type": "string", "minLength": 1},
+    "item_id": {"type": "string", "minLength": 1},
+    "cluster_id": {"type": "string", "minLength": 1},
+    "track": {"type": "string", "minLength": 1},
+    "repeat": {"type": "integer", "minimum": 1},
+    "day": {"type": "integer", "minimum": 1},
+    "region": {"type": "string", "minLength": 1},
+    "block_position": {"type": "integer", "minimum": 0},
+    "within_item_position": {"type": "integer", "minimum": 0},
+    "language": {"type": "string", "minLength": 1},
+    "locale": {"type": "string", "minLength": 1},
+    "modality": {"type": "string", "minLength": 1},
+    "difficulty": {"type": "string", "minLength": 1},
+    "deadline_ms": {"type": "number", "exclusiveMinimum": 0},
+    "budget_usd": {"type": ["number", "null"], "minimum": 0},
+    "output_cap_tokens": {"type": "integer", "minimum": 1},
+    "seed": {"type": "integer"}
+  }
+}

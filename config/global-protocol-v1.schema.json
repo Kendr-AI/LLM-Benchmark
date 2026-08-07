@@ -1,0 +1,387 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kendr.ai/schemas/llm-benchmark-protocol/kgbp-1.0.json",
+  "title": "LLM Benchmark Protocol 1.0 - KGBP reference profile",
+  "description": "Strict configuration schema. Validation establishes structural conformance only; it does not verify declarations or confer certification.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "study", "systems", "evaluation", "sampling", "statistics", "coverage",
+    "freshness", "fairness", "reproducibility", "operations",
+    "trustworthiness", "specialized", "governance", "evidence"
+  ],
+  "$defs": {
+    "nonEmptyString": {"type": "string", "minLength": 1},
+    "stringArray": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/nonEmptyString"},
+      "uniqueItems": true
+    },
+    "positiveInteger": {"type": "integer", "minimum": 1},
+    "nonNegativeNumber": {"type": "number", "minimum": 0},
+    "proportion": {"type": "number", "minimum": 0, "maximum": 1},
+    "uriOrNull": {"type": ["string", "null"], "format": "uri"},
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "unit", "direction"],
+      "properties": {
+        "name": {"$ref": "#/$defs/nonEmptyString"},
+        "unit": {"$ref": "#/$defs/nonEmptyString"},
+        "direction": {"enum": ["higher", "lower"]}
+      }
+    },
+    "system": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "system_id", "provider", "system_type", "deployment_scope",
+        "access_mode", "version", "input_modalities", "output_modalities",
+        "declared_capabilities"
+      ],
+      "properties": {
+        "system_id": {"$ref": "#/$defs/nonEmptyString"},
+        "provider": {"$ref": "#/$defs/nonEmptyString"},
+        "owner": {"type": "string"},
+        "system_type": {
+          "enum": [
+            "base-model", "instruction-model", "reasoning-model",
+            "specialist-model", "multimodal-model", "embedding-model",
+            "reranker", "router", "ensemble", "agent", "application"
+          ]
+        },
+        "deployment_scope": {
+          "enum": ["model", "endpoint", "routed-system", "agentic-system", "application"]
+        },
+        "access_mode": {
+          "enum": ["first-party-api", "third-party-api", "managed", "open-weights", "local", "hybrid"]
+        },
+        "version": {"$ref": "#/$defs/nonEmptyString"},
+        "input_modalities": {"$ref": "#/$defs/stringArray"},
+        "output_modalities": {"$ref": "#/$defs/stringArray"},
+        "declared_capabilities": {"$ref": "#/$defs/stringArray"}
+      }
+    }
+  },
+  "properties": {
+    "study": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_id", "status", "claim_type", "target_population",
+        "primary_endpoints", "decision_thresholds"
+      ],
+      "properties": {
+        "protocol_id": {"$ref": "#/$defs/nonEmptyString"},
+        "status": {"enum": ["planned", "executed"]},
+        "claim_type": {
+          "enum": [
+            "controlled-comparison", "capability-under-strong-elicitation",
+            "production-selection", "router-value", "safety-assurance"
+          ]
+        },
+        "target_population": {"$ref": "#/$defs/nonEmptyString"},
+        "primary_endpoints": {
+          "allOf": [{"$ref": "#/$defs/stringArray"}, {"minItems": 2}]
+        },
+        "decision_thresholds": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"type": ["number", "integer", "string", "boolean"]}
+        }
+      }
+    },
+    "systems": {
+      "type": "array",
+      "minItems": 2,
+      "items": {"$ref": "#/$defs/system"}
+    },
+    "evaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tracks", "metrics", "single_composite_is_primary",
+        "report_pareto_frontier", "human_baselines", "production_baselines"
+      ],
+      "properties": {
+        "tracks": {"allOf": [{"$ref": "#/$defs/stringArray"}, {"minItems": 12}]},
+        "metrics": {"type": "array", "minItems": 8, "items": {"$ref": "#/$defs/metric"}},
+        "single_composite_is_primary": {"type": "boolean"},
+        "report_pareto_frontier": {"type": "boolean"},
+        "human_baselines": {"type": "boolean"},
+        "production_baselines": {"type": "boolean"}
+      }
+    },
+    "sampling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum_items", "repeats_per_item", "stratification_fields"],
+      "properties": {
+        "minimum_items": {"type": "integer", "minimum": 300},
+        "repeats_per_item": {"type": "integer", "minimum": 3},
+        "stratification_fields": {
+          "allOf": [{"$ref": "#/$defs/stringArray"}, {"minItems": 5}]
+        }
+      }
+    },
+    "statistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prospective_power_analysis", "minimum_detectable_effect",
+        "hierarchical_item_generation_model", "cluster_robust_uncertainty",
+        "confidence_intervals", "effect_sizes", "multiplicity_control",
+        "practical_equivalence_margin", "failures_score_zero",
+        "missingness_sensitivity_analysis"
+      ],
+      "properties": {
+        "prospective_power_analysis": {"type": "boolean"},
+        "minimum_detectable_effect": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "hierarchical_item_generation_model": {"type": "boolean"},
+        "cluster_robust_uncertainty": {"type": "boolean"},
+        "confidence_intervals": {"type": "boolean"},
+        "effect_sizes": {"type": "boolean"},
+        "multiplicity_control": {"enum": ["holm", "hierarchical", "closed-testing", "fdr"]},
+        "practical_equivalence_margin": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "failures_score_zero": {"type": "boolean"},
+        "missingness_sensitivity_analysis": {"type": "boolean"}
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "production_task_fraction", "language_count", "language_family_count",
+        "locale_count", "native_speaker_review", "modalities",
+        "context_length_buckets", "difficulty_bands", "multi_turn",
+        "tool_use", "worst_slice_reporting"
+      ],
+      "properties": {
+        "production_task_fraction": {"$ref": "#/$defs/proportion"},
+        "language_count": {"type": "integer", "minimum": 8},
+        "language_family_count": {"type": "integer", "minimum": 4},
+        "locale_count": {"type": "integer", "minimum": 8},
+        "native_speaker_review": {"type": "boolean"},
+        "modalities": {"$ref": "#/$defs/stringArray"},
+        "context_length_buckets": {"allOf": [{"$ref": "#/$defs/stringArray"}, {"minItems": 3}]},
+        "difficulty_bands": {"allOf": [{"$ref": "#/$defs/stringArray"}, {"minItems": 3}]},
+        "multi_turn": {"type": "boolean"},
+        "tool_use": {"type": "boolean"},
+        "worst_slice_reporting": {"type": "boolean"}
+      }
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maximum_item_age_days", "private_holdout_fraction", "rolling_refresh",
+        "contamination_audit", "canary_items", "semantic_deduplication",
+        "leakage_response_policy", "freeze_before_inference",
+        "blind_broken_item_review"
+      ],
+      "properties": {
+        "maximum_item_age_days": {"type": "integer", "minimum": 1, "maximum": 180},
+        "private_holdout_fraction": {"$ref": "#/$defs/proportion"},
+        "rolling_refresh": {"type": "boolean"},
+        "contamination_audit": {"type": "boolean"},
+        "canary_items": {"type": "boolean"},
+        "semantic_deduplication": {"type": "boolean"},
+        "leakage_response_policy": {"$ref": "#/$defs/nonEmptyString"},
+        "freeze_before_inference": {"type": "boolean"},
+        "blind_broken_item_review": {"type": "boolean"}
+      }
+    },
+    "fairness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "elicitation_regimes", "equal_resource_budgets",
+        "provider_recommended_settings", "reasoning_and_sampling_disclosed",
+        "randomized_interleaving", "normalized_token_measure",
+        "immutable_system_snapshots", "refusal_policy", "divisions"
+      ],
+      "properties": {
+        "elicitation_regimes": {"allOf": [{"$ref": "#/$defs/stringArray"}, {"minItems": 2}]},
+        "equal_resource_budgets": {"type": "boolean"},
+        "provider_recommended_settings": {"type": "boolean"},
+        "reasoning_and_sampling_disclosed": {"type": "boolean"},
+        "randomized_interleaving": {"type": "boolean"},
+        "normalized_token_measure": {"type": "boolean"},
+        "immutable_system_snapshots": {"type": "boolean"},
+        "refusal_policy": {"$ref": "#/$defs/nonEmptyString"},
+        "divisions": {"allOf": [{"$ref": "#/$defs/stringArray"}, {"minItems": 2}]}
+      }
+    },
+    "reproducibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pinned_code", "pinned_harness", "container_or_lockfile",
+        "hardware_and_region_manifest", "content_hashes",
+        "machine_readable_schemas", "public_raw_artifacts",
+        "one_command_replay", "signed_append_only_log",
+        "answer_judgment_call_lineage", "sbom_and_data_provenance"
+      ],
+      "properties": {
+        "pinned_code": {"type": "boolean"},
+        "pinned_harness": {"type": "boolean"},
+        "container_or_lockfile": {"type": "boolean"},
+        "hardware_and_region_manifest": {"type": "boolean"},
+        "content_hashes": {"type": "boolean"},
+        "machine_readable_schemas": {"type": "boolean"},
+        "public_raw_artifacts": {"type": "boolean"},
+        "one_command_replay": {"type": "boolean"},
+        "signed_append_only_log": {"type": "boolean"},
+        "answer_judgment_call_lineage": {"type": "boolean"},
+        "sbom_and_data_provenance": {"type": "boolean"}
+      }
+    },
+    "operations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "measurement_days", "regions", "request_deadline_ms",
+        "max_cost_usd_per_request", "output_cap_tokens", "load_scenarios", "concurrency_levels",
+        "streaming_metrics", "minimum_requests_per_system", "retry_inclusive",
+        "transport_retries_disabled_or_observed", "error_taxonomy",
+        "availability_and_goodput", "cost_per_success",
+        "budget_qualified_goodput", "energy_and_carbon", "drift_monitoring"
+      ],
+      "properties": {
+        "measurement_days": {"type": "integer", "minimum": 3},
+        "regions": {"type": "integer", "minimum": 3},
+        "request_deadline_ms": {"type": "number", "exclusiveMinimum": 0},
+        "max_cost_usd_per_request": {"type": ["number", "null"], "minimum": 0},
+        "output_cap_tokens": {"type": "integer", "minimum": 1},
+        "load_scenarios": {"allOf": [{"$ref": "#/$defs/stringArray"}, {"minItems": 3}]},
+        "concurrency_levels": {"type": "array", "minItems": 3, "items": {"$ref": "#/$defs/positiveInteger"}, "uniqueItems": true},
+        "streaming_metrics": {"allOf": [{"$ref": "#/$defs/stringArray"}, {"minItems": 3}]},
+        "minimum_requests_per_system": {"type": "integer", "minimum": 1000},
+        "retry_inclusive": {"type": "boolean"},
+        "transport_retries_disabled_or_observed": {"type": "boolean"},
+        "error_taxonomy": {"type": "boolean"},
+        "availability_and_goodput": {"type": "boolean"},
+        "cost_per_success": {"type": "boolean"},
+        "budget_qualified_goodput": {"type": "boolean"},
+        "energy_and_carbon": {"type": "boolean"},
+        "drift_monitoring": {"type": "boolean"}
+      }
+    },
+    "trustworthiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domains", "threat_models", "independent_red_team", "adaptive_attacks",
+        "cross_language_modality", "human_escalation", "privacy_legal_review",
+        "calibration_and_abstention", "incident_and_failover_tests"
+      ],
+      "properties": {
+        "domains": {"allOf": [{"$ref": "#/$defs/stringArray"}, {"minItems": 8}]},
+        "threat_models": {"allOf": [{"$ref": "#/$defs/stringArray"}, {"minItems": 3}]},
+        "independent_red_team": {"type": "boolean"},
+        "adaptive_attacks": {"type": "boolean"},
+        "cross_language_modality": {"type": "boolean"},
+        "human_escalation": {"type": "boolean"},
+        "privacy_legal_review": {"type": "boolean"},
+        "calibration_and_abstention": {"type": "boolean"},
+        "incident_and_failover_tests": {"type": "boolean"}
+      }
+    },
+    "specialized": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "no_cross_scope_ranking", "modality_specific_graders",
+        "judge_human_validation", "minimum_judge_human_agreement",
+        "multi_family_judge_panel", "blinded_and_randomized_judging",
+        "saturation_retirement_threshold", "router", "agent", "retrieval"
+      ],
+      "properties": {
+        "no_cross_scope_ranking": {"type": "boolean"},
+        "modality_specific_graders": {"type": "boolean"},
+        "judge_human_validation": {"type": "boolean"},
+        "minimum_judge_human_agreement": {"$ref": "#/$defs/proportion"},
+        "multi_family_judge_panel": {"type": "boolean"},
+        "blinded_and_randomized_judging": {"type": "boolean"},
+        "saturation_retirement_threshold": {"$ref": "#/$defs/proportion"},
+        "router": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["full_candidate_counterfactuals", "baselines", "regret_calibration_stability"],
+          "properties": {
+            "full_candidate_counterfactuals": {"type": "boolean"},
+            "baselines": {"allOf": [{"$ref": "#/$defs/stringArray"}, {"minItems": 3}]},
+            "regret_calibration_stability": {"type": "boolean"}
+          }
+        },
+        "agent": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome_state_verification", "long_horizon_trajectories"],
+          "properties": {
+            "outcome_state_verification": {"type": "boolean"},
+            "long_horizon_trajectories": {"type": "boolean"}
+          }
+        },
+        "retrieval": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ir_metrics", "hard_negatives"],
+          "properties": {
+            "ir_metrics": {"type": "boolean"},
+            "hard_negatives": {"type": "boolean"}
+          }
+        }
+      }
+    },
+    "governance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version", "public_protocol", "preregistration_required",
+        "minimum_independent_reviewers", "minimum_replicating_organizations",
+        "conflict_disclosure", "funding_disclosure",
+        "public_comment_and_change_control", "appeals_and_corrections",
+        "benchmark_card", "stakeholder_groups", "geographic_regions",
+        "ethics_accessibility_license_review", "standards_crosswalk"
+      ],
+      "properties": {
+        "protocol_version": {"const": "KGBP-1.0"},
+        "public_protocol": {"type": "boolean"},
+        "preregistration_required": {"type": "boolean"},
+        "minimum_independent_reviewers": {"type": "integer", "minimum": 3},
+        "minimum_replicating_organizations": {"type": "integer", "minimum": 2},
+        "conflict_disclosure": {"type": "boolean"},
+        "funding_disclosure": {"type": "boolean"},
+        "public_comment_and_change_control": {"type": "boolean"},
+        "appeals_and_corrections": {"type": "boolean"},
+        "benchmark_card": {"type": "boolean"},
+        "stakeholder_groups": {"type": "integer", "minimum": 5},
+        "geographic_regions": {"type": "integer", "minimum": 5},
+        "ethics_accessibility_license_review": {"type": "boolean"},
+        "standards_crosswalk": {"allOf": [{"$ref": "#/$defs/stringArray"}, {"minItems": 5}]}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preregistration_uri", "raw_artifact_bundle_uri", "signed_manifest_uri",
+        "independent_review_uri", "replication_reports", "benchmark_card_uri",
+        "standards_crosswalk_uri", "protocol_deviations_resolved",
+        "all_primary_tracks_adequately_powered"
+      ],
+      "properties": {
+        "preregistration_uri": {"$ref": "#/$defs/uriOrNull"},
+        "raw_artifact_bundle_uri": {"$ref": "#/$defs/uriOrNull"},
+        "signed_manifest_uri": {"$ref": "#/$defs/uriOrNull"},
+        "independent_review_uri": {"$ref": "#/$defs/uriOrNull"},
+        "replication_reports": {"type": "array", "items": {"type": "string", "format": "uri"}, "uniqueItems": true},
+        "benchmark_card_uri": {"$ref": "#/$defs/uriOrNull"},
+        "standards_crosswalk_uri": {"$ref": "#/$defs/uriOrNull"},
+        "protocol_deviations_resolved": {"type": "boolean"},
+        "all_primary_tracks_adequately_powered": {"type": "boolean"}
+      }
+    }
+  }
+}

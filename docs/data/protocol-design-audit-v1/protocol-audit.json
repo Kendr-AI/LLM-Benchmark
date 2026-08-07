@@ -1,0 +1,1187 @@
+{
+  "protocol_name": "LLM Benchmark Protocol (KGBP reference profile)",
+  "protocol_version": "KGBP-1.0",
+  "config_sha256": "30a22bc4fbce8b21c2333adf377f0c8999ef8000e4f8d13cb094108a1c903482",
+  "threshold_policy": {
+    "minimum_score_per_dimension_exclusive": 9.0,
+    "aggregation": "geometric mean; no compensation below the per-dimension gate"
+  },
+  "design_score": 10.0,
+  "minimum_dimension_score": 10.0,
+  "design_ready": true,
+  "execution_ready": false,
+  "evidence_bundle_structurally_complete": false,
+  "global_publication_candidate": false,
+  "automated_assurance_scope": "Configuration and evidence-reference structure only; the audit does not verify truth, adequacy, independence, accreditation, or conformity.",
+  "independent_evidence_review_required": true,
+  "execution_blockers": [
+    "Study status is not 'executed'; design readiness is not result validity."
+  ],
+  "dimensions": [
+    {
+      "dimension": "construct_validity",
+      "score": 10.0,
+      "passed": true,
+      "checks": [
+        {
+          "check_id": "CV01",
+          "title": "Explicit claim type",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": "controlled-comparison",
+          "requirement": "One of: capability-under-strong-elicitation, controlled-comparison, production-selection, router-value, safety-assurance",
+          "remediation": "Declare the exact inference the benchmark is intended to support."
+        },
+        {
+          "check_id": "CV02",
+          "title": "Target population",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": "Production-facing multilingual generative AI systems used for knowledge work, coding, and tool-assisted workflows across API and routed deployments",
+          "requirement": "A bounded population of tasks, users, systems, and deployment contexts",
+          "remediation": "Define what future tasks and environments the results should generalize to."
+        },
+        {
+          "check_id": "CV03",
+          "title": "Primary endpoints and estimands",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": [
+            "failure-normalized task success",
+            "budget-and-deadline-qualified operational goodput"
+          ],
+          "requirement": "At least two predeclared primary endpoints/estimands",
+          "remediation": "Predeclare quality and operational primary outcomes separately."
+        },
+        {
+          "check_id": "CV04",
+          "title": "Capability-separated tracks",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": [
+            "reasoning",
+            "knowledge",
+            "factuality",
+            "instruction-following",
+            "coding",
+            "long-context",
+            "multilingual",
+            "robustness",
+            "safety",
+            "efficiency",
+            "reliability",
+            "production-tasks",
+            "agentic-tool-use",
+            "human-preference"
+          ],
+          "requirement": "At least 10 unique, separately reported tracks",
+          "remediation": "Add separate tracks instead of hiding heterogeneous abilities in one average."
+        },
+        {
+          "check_id": "CV05",
+          "title": "Metric semantics",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": 10,
+          "requirement": "At least 8 metrics with name, unit, and optimization direction",
+          "remediation": "Define every metric's unit and whether higher, lower, or a target is better."
+        },
+        {
+          "check_id": "CV06",
+          "title": "Decision thresholds",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": {
+            "practical_quality_difference": 0.02,
+            "minimum_availability": 0.995,
+            "maximum_p95_e2e_ms": 30000,
+            "maximum_cost_usd_per_success": 0.5
+          },
+          "requirement": "Predeclared practical decision thresholds",
+          "remediation": "State what score difference is operationally meaningful before running models."
+        },
+        {
+          "check_id": "CV07",
+          "title": "Non-compensatory scorecards",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": {
+            "single_composite_is_primary": false,
+            "report_pareto_frontier": true
+          },
+          "requirement": "Track scorecards are primary; a composite cannot hide a failed dimension",
+          "remediation": "Make separate scorecards and the Pareto frontier primary outputs."
+        },
+        {
+          "check_id": "CV08",
+          "title": "Human or production anchors",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": {
+            "human": true,
+            "production": true
+          },
+          "requirement": "Both qualified-human and incumbent-production baselines",
+          "remediation": "Add baselines that make model scores interpretable in deployment terms."
+        }
+      ]
+    },
+    {
+      "dimension": "statistical_validity",
+      "score": 10.0,
+      "passed": true,
+      "checks": [
+        {
+          "check_id": "ST01",
+          "title": "Adequate item count",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": 1200.0,
+          "requirement": "At least 300 scored items, increased by prospective power analysis where needed",
+          "remediation": "Increase the evaluation pool; do not infer global rankings from a tiny slice."
+        },
+        {
+          "check_id": "ST02",
+          "title": "Generation repeats",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": 5.0,
+          "requirement": "At least 3 independent generations per stochastic item/system",
+          "remediation": "Run multiple epochs so generation variance can be separated from item variance."
+        },
+        {
+          "check_id": "ST03",
+          "title": "Prospective power analysis",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": {
+            "enabled": true,
+            "mde": 0.02
+          },
+          "requirement": "Pre-run power analysis with a minimum detectable effect",
+          "remediation": "Size each primary track for its predeclared effect size."
+        },
+        {
+          "check_id": "ST04",
+          "title": "Representative stratification",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": [
+            "track",
+            "difficulty",
+            "language",
+            "modality",
+            "source",
+            "production_frequency"
+          ],
+          "requirement": "At least 5 design strata, including task and difficulty",
+          "remediation": "Stratify the sample across capabilities, difficulty, language, modality, and source."
+        },
+        {
+          "check_id": "ST05",
+          "title": "Hierarchical uncertainty",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": {
+            "hierarchical": true,
+            "cluster_robust": true
+          },
+          "requirement": "Separate item, repeat, and cluster variance",
+          "remediation": "Use hierarchical/cluster-aware estimation rather than treating every row as IID."
+        },
+        {
+          "check_id": "ST06",
+          "title": "Intervals and effect sizes",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": {
+            "ci": true,
+            "effects": true
+          },
+          "requirement": "Confidence intervals and paired effect sizes for all primary comparisons",
+          "remediation": "Report uncertainty and effect sizes, not only ranks and point estimates."
+        },
+        {
+          "check_id": "ST07",
+          "title": "Multiplicity and equivalence",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": {
+            "control": "holm",
+            "margin": 0.02
+          },
+          "requirement": "Family-wise error control plus a predeclared equivalence margin",
+          "remediation": "Control leaderboard-wide comparisons and distinguish no evidence from equivalence."
+        },
+        {
+          "check_id": "ST08",
+          "title": "Missingness and sensitivity analysis",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": {
+            "failure_zero": true,
+            "sensitivity": true
+          },
+          "requirement": "Failure-aware primary scoring and sensitivity bounds for unknown data",
+          "remediation": "Preserve the planned denominator and publish best/worst-case missing-data bounds."
+        },
+        {
+          "check_id": "ST09",
+          "title": "Temporal replication",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": 7,
+          "requirement": "Measurements across at least 3 independent days/windows",
+          "remediation": "Repeat across time to avoid treating a transient provider state as a model trait."
+        }
+      ]
+    },
+    {
+      "dimension": "coverage_and_representativeness",
+      "score": 10.0,
+      "passed": true,
+      "checks": [
+        {
+          "check_id": "CO01",
+          "title": "Core track coverage",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": [
+            "agentic-tool-use",
+            "coding",
+            "efficiency",
+            "factuality",
+            "human-preference",
+            "instruction-following",
+            "knowledge",
+            "long-context",
+            "multilingual",
+            "production-tasks",
+            "reasoning",
+            "reliability",
+            "robustness",
+            "safety"
+          ],
+          "requirement": "All 12 core tracks",
+          "remediation": "Add every core track or narrow the benchmark's claim."
+        },
+        {
+          "check_id": "CO02",
+          "title": "Production-shaped task share",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": 0.35,
+          "requirement": "At least 25% production-shaped tasks",
+          "remediation": "Add real, privacy-reviewed workflows weighted by deployment traffic."
+        },
+        {
+          "check_id": "CO03",
+          "title": "Language breadth",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": 15,
+          "requirement": "At least 8 languages",
+          "remediation": "Add languages representative of intended users."
+        },
+        {
+          "check_id": "CO04",
+          "title": "Language-family breadth",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": 8,
+          "requirement": "At least 4 language families",
+          "remediation": "Avoid counting only closely related high-resource languages."
+        },
+        {
+          "check_id": "CO05",
+          "title": "Locale and cultural review",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": {
+            "review": true,
+            "locales": 15
+          },
+          "requirement": "Native-speaker review across at least 8 locales",
+          "remediation": "Use local reviewers for translation, cultural validity, and harms."
+        },
+        {
+          "check_id": "CO06",
+          "title": "Advertised modality coverage",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": {
+            "declared": [
+              "text"
+            ],
+            "tested": [
+              "text"
+            ]
+          },
+          "requirement": "Every advertised input modality is tested",
+          "remediation": "Add modality-specific tasks or remove unsupported claims."
+        },
+        {
+          "check_id": "CO07",
+          "title": "Context-length curve",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": [
+            "0-8k",
+            "8-32k",
+            "32-128k",
+            "128-512k",
+            "512k+"
+          ],
+          "requirement": "At least 5 context-length buckets",
+          "remediation": "Measure a performance curve rather than a single context point."
+        },
+        {
+          "check_id": "CO08",
+          "title": "Difficulty calibration",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": [
+            "routine",
+            "moderate",
+            "hard",
+            "frontier"
+          ],
+          "requirement": "At least 4 calibrated difficulty bands",
+          "remediation": "Include non-saturated tasks and report results by difficulty."
+        },
+        {
+          "check_id": "CO09",
+          "title": "Multi-turn and tool workflows",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": {
+            "multi_turn": true,
+            "tool_use": true
+          },
+          "requirement": "Both multi-turn and tool-using tasks",
+          "remediation": "Add stateful, outcome-verified workflows."
+        },
+        {
+          "check_id": "CO10",
+          "title": "Worst-slice reporting",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "Report worst slices and disparities",
+          "remediation": "Publish slice sample sizes, intervals, and worst-group performance."
+        }
+      ]
+    },
+    {
+      "dimension": "freshness_and_contamination_control",
+      "score": 10.0,
+      "passed": true,
+      "checks": [
+        {
+          "check_id": "FR01",
+          "title": "Fresh item ceiling",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": 90.0,
+          "requirement": "Maximum item age of 180 days",
+          "remediation": "Use a continuously refreshed pool and record actual item dates."
+        },
+        {
+          "check_id": "FR02",
+          "title": "Private holdout",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": 0.3,
+          "requirement": "At least 20% private or access-controlled holdout",
+          "remediation": "Maintain a secure holdout unavailable during model development."
+        },
+        {
+          "check_id": "FR03",
+          "title": "Rolling refresh",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "Versioned rolling refresh policy",
+          "remediation": "Define item retirement, replacement, and re-evaluation cadence."
+        },
+        {
+          "check_id": "FR04",
+          "title": "Contamination audit",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": true,
+          "requirement": "Lexical, semantic, and answer-reproduction checks",
+          "remediation": "Audit training/test leakage and publish the audit method."
+        },
+        {
+          "check_id": "FR05",
+          "title": "Canary items",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "Canaries for leakage and benchmark awareness",
+          "remediation": "Seed trackable items and define an incident threshold."
+        },
+        {
+          "check_id": "FR06",
+          "title": "Cross-source deduplication",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "Exact and semantic deduplication across splits/sources",
+          "remediation": "Remove paraphrases and shared-answer leakage across datasets."
+        },
+        {
+          "check_id": "FR07",
+          "title": "Leakage response policy",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": "Quarantine affected items, invalidate impacted estimates, publish the correction, and rerun the frozen replacement stratum",
+          "requirement": "Predeclared quarantine, invalidation, and rerun policy",
+          "remediation": "State how contaminated results are corrected and versioned."
+        },
+        {
+          "check_id": "FR08",
+          "title": "Plan frozen before inference",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": true,
+          "requirement": "Content-addressed plan frozen before provider calls",
+          "remediation": "Freeze IDs, graders, weights, and exclusions before inference."
+        },
+        {
+          "check_id": "FR09",
+          "title": "Broken-item review",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "Blind review and predeclared exclusion rules",
+          "remediation": "Review ambiguous/broken tasks without seeing model identity."
+        }
+      ]
+    },
+    {
+      "dimension": "fairness_and_comparability",
+      "score": 10.0,
+      "passed": true,
+      "checks": [
+        {
+          "check_id": "FA01",
+          "title": "Dual elicitation regimes",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": [
+            "controlled",
+            "provider-optimized"
+          ],
+          "requirement": "Controlled and provider-optimized regimes",
+          "remediation": "Publish equal-budget and credible maximum-elicitation results separately."
+        },
+        {
+          "check_id": "FA02",
+          "title": "Equal resource budgets",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": true,
+          "requirement": "Turns, tokens, time, tools, attempts, and cost budgets are explicit",
+          "remediation": "Fix resource budgets for controlled comparisons."
+        },
+        {
+          "check_id": "FA03",
+          "title": "Provider-recommended settings",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "Documented provider settings in optimized regime",
+          "remediation": "Record settings and sources without mixing them into controlled results."
+        },
+        {
+          "check_id": "FA04",
+          "title": "Reasoning and sampling disclosure",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "Reasoning effort, temperature, seed, caps, and hidden-token treatment",
+          "remediation": "Capture effective—not merely requested—generation parameters."
+        },
+        {
+          "check_id": "FA05",
+          "title": "Order randomization",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": true,
+          "requirement": "Blocked randomization/interleaving across systems",
+          "remediation": "Avoid sequential provider blocks."
+        },
+        {
+          "check_id": "FA06",
+          "title": "Tokenizer-normalized efficiency",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "Provider-native billing plus a common text/token unit",
+          "remediation": "Report native billing and standardized output volume separately."
+        },
+        {
+          "check_id": "FA07",
+          "title": "Exact system identity",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": true,
+          "requirement": "Immutable model/endpoint/version/region/safeguard identity",
+          "remediation": "Reject mutable aliases as the only identity."
+        },
+        {
+          "check_id": "FA08",
+          "title": "Refusal and safety-policy handling",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": "Score task refusal as failure in capability tracks and separately assess appropriate refusal in safety tracks",
+          "requirement": "Predeclared refusal, block, and policy-conflict scoring",
+          "remediation": "Separate capability failures from expected safeguard behavior."
+        },
+        {
+          "check_id": "FA09",
+          "title": "Open and closed divisions",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": [
+            "closed",
+            "open"
+          ],
+          "requirement": "Closed comparable and open optimized divisions",
+          "remediation": "Borrow MLPerf-style divisions to preserve both fairness and innovation."
+        }
+      ]
+    },
+    {
+      "dimension": "reproducibility_and_traceability",
+      "score": 10.0,
+      "passed": true,
+      "checks": [
+        {
+          "check_id": "RE01",
+          "title": "Pinned code and harness",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": {
+            "code": true,
+            "harness": true
+          },
+          "requirement": "Content-addressed code and harness",
+          "remediation": "Record immutable commits and patches."
+        },
+        {
+          "check_id": "RE02",
+          "title": "Pinned environment",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": {
+            "environment": true,
+            "hardware": true
+          },
+          "requirement": "Rebuildable dependencies plus hardware/region manifest",
+          "remediation": "Publish lockfiles/container digests and infrastructure description."
+        },
+        {
+          "check_id": "RE03",
+          "title": "Dataset and plan hashes",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": true,
+          "requirement": "Hashes for eligible pool, plan, prompts, graders, and artifacts",
+          "remediation": "Hash content rather than relying only on filenames or release labels."
+        },
+        {
+          "check_id": "RE04",
+          "title": "Machine-readable schemas",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "Versioned schemas for systems, calls, answers, judgments, and reports",
+          "remediation": "Publish validation schemas and reject invalid submissions."
+        },
+        {
+          "check_id": "RE05",
+          "title": "Raw artifact access",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": true,
+          "requirement": "Privacy-reviewed prompts, outputs, calls, and judgments",
+          "remediation": "Publish artifacts or provide controlled auditor access where privacy forbids release."
+        },
+        {
+          "check_id": "RE06",
+          "title": "One-command replay",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "Offline report reconstruction and documented inference replay",
+          "remediation": "Make every table reproducible without editing source."
+        },
+        {
+          "check_id": "RE07",
+          "title": "Signed transparency log",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": true,
+          "requirement": "Signed append-only run and correction log",
+          "remediation": "Sign manifests and retain superseded/invalidated results."
+        },
+        {
+          "check_id": "RE08",
+          "title": "End-to-end lineage",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": true,
+          "requirement": "Unique lineage from plan to attempts, answer, judgment, and report",
+          "remediation": "Enforce referential integrity and deny incomplete publication."
+        },
+        {
+          "check_id": "RE09",
+          "title": "Software and data bill of materials",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "SBOM, licenses, data origin, transformations, and grader provenance",
+          "remediation": "Record the complete evaluation supply chain."
+        }
+      ]
+    },
+    {
+      "dimension": "operational_realism",
+      "score": 10.0,
+      "passed": true,
+      "checks": [
+        {
+          "check_id": "OP01",
+          "title": "Temporal and regional spread",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": {
+            "days": 7,
+            "regions": 3
+          },
+          "requirement": "At least 3 days and 3 regions",
+          "remediation": "Measure service behavior across independent times and regions."
+        },
+        {
+          "check_id": "OP02",
+          "title": "Load scenarios",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": [
+            "interactive",
+            "offline",
+            "server"
+          ],
+          "requirement": "Offline, interactive, and server scenarios",
+          "remediation": "Use scenario-specific latency/throughput constraints."
+        },
+        {
+          "check_id": "OP03",
+          "title": "Concurrency curve",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": [
+            1,
+            8,
+            32,
+            128
+          ],
+          "requirement": "At least 3 concurrency/load levels",
+          "remediation": "Measure saturation rather than a single concurrency setting."
+        },
+        {
+          "check_id": "OP04",
+          "title": "Streaming latency",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": [
+            "e2e",
+            "tpot",
+            "ttfa",
+            "ttft"
+          ],
+          "requirement": "TTFT, first-answer token, TPOT, and end-to-end latency",
+          "remediation": "Use streaming instrumentation and separate reasoning from answer latency."
+        },
+        {
+          "check_id": "OP05",
+          "title": "Tail sample adequacy",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": 5000,
+          "requirement": "At least 1,000 requests/system for operational tails",
+          "remediation": "Collect enough observations before reporting p95/p99/SLO rates."
+        },
+        {
+          "check_id": "OP06",
+          "title": "Retry-inclusive accounting",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": {
+            "retry_inclusive": true,
+            "transport_observed": true
+          },
+          "requirement": "All attempts, hidden transport retries, time, tokens, and cost are observed",
+          "remediation": "Disable opaque SDK retries or instrument them."
+        },
+        {
+          "check_id": "OP07",
+          "title": "Error taxonomy and availability",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": {
+            "taxonomy": true,
+            "goodput": true
+          },
+          "requirement": "Versioned errors plus failure-aware availability/goodput",
+          "remediation": "Keep failures in the denominator and distinguish provider/model/policy/harness failures."
+        },
+        {
+          "check_id": "OP08",
+          "title": "Cost and successful-outcome economics",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": {
+            "cost_per_success": true,
+            "goodput": true
+          },
+          "requirement": "Cost per successful outcome and cost-budget goodput",
+          "remediation": "Use observed billed cost and sensitivity ranges for modeled prices."
+        },
+        {
+          "check_id": "OP09",
+          "title": "Energy and environmental metrics",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "Measured or supplier-attested energy and carbon with boundaries",
+          "remediation": "Report energy/request and carbon assumptions separately from price."
+        },
+        {
+          "check_id": "OP10",
+          "title": "Longitudinal drift",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "Scheduled re-runs, change-point detection, and alias drift alerts",
+          "remediation": "Treat managed endpoints as changing systems."
+        }
+      ]
+    },
+    {
+      "dimension": "safety_security_and_trustworthiness",
+      "score": 10.0,
+      "passed": true,
+      "checks": [
+        {
+          "check_id": "TR01",
+          "title": "Trustworthiness domain coverage",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": [
+            "bias-and-fairness",
+            "cybersecurity",
+            "deception",
+            "factuality",
+            "harmful-content",
+            "jailbreak-robustness",
+            "overrefusal",
+            "privacy"
+          ],
+          "requirement": "Eight core trustworthiness domains",
+          "remediation": "Add missing risk domains and publish separate results."
+        },
+        {
+          "check_id": "TR02",
+          "title": "Threat models",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": [
+            "ordinary user misuse",
+            "expert adaptive attacker",
+            "malicious tool output",
+            "compromised dependency"
+          ],
+          "requirement": "Explicit actors, capabilities, assets, and harm thresholds",
+          "remediation": "Tie each safety evaluation to a concrete threat model."
+        },
+        {
+          "check_id": "TR03",
+          "title": "Independent red team",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "Independent, conflict-disclosed red teaming",
+          "remediation": "Include external domain experts and preserve negative findings."
+        },
+        {
+          "check_id": "TR04",
+          "title": "Adaptive adversarial testing",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "Multi-turn, tool-aware, adaptive attacks under defined budgets",
+          "remediation": "Test realistic adversaries, not only static prompt lists."
+        },
+        {
+          "check_id": "TR05",
+          "title": "Multilingual and multimodal safety",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "Safety coverage across claimed languages/modalities",
+          "remediation": "Probe policy consistency outside English text."
+        },
+        {
+          "check_id": "TR06",
+          "title": "Human escalation outcomes",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "Escalation precision, recall, burden, and resolution quality",
+          "remediation": "Evaluate the socio-technical system, not only model output."
+        },
+        {
+          "check_id": "TR07",
+          "title": "Privacy and legal review",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": true,
+          "requirement": "Documented privacy, consent, retention, and jurisdiction review",
+          "remediation": "Review test data and artifact publication before execution."
+        },
+        {
+          "check_id": "TR08",
+          "title": "Uncertainty and abstention",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "Calibration, selective risk, and appropriate abstention",
+          "remediation": "Measure confidence/abstention against hard outcomes on adequate samples."
+        },
+        {
+          "check_id": "TR09",
+          "title": "Incident simulation",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "Stateful incidents, degraded dependencies, failover, and recovery",
+          "remediation": "Test operational safety under realistic failures."
+        }
+      ]
+    },
+    {
+      "dimension": "system_classification_and_specialized_evaluation",
+      "score": 10.0,
+      "passed": true,
+      "checks": [
+        {
+          "check_id": "SY01",
+          "title": "Complete system taxonomy",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": 2,
+          "requirement": "At least 2 fully classified immutable systems",
+          "remediation": "Populate the system card fields and validate enum values."
+        },
+        {
+          "check_id": "SY02",
+          "title": "Scope-appropriate comparisons",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": true,
+          "requirement": "Models, endpoints, routers, and applications are not silently mixed",
+          "remediation": "Publish separate divisions or explicitly label system-to-system comparisons."
+        },
+        {
+          "check_id": "SY03",
+          "title": "Router/ensemble evaluation",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": {
+            "required": true,
+            "configured": true
+          },
+          "requirement": "Full candidate counterfactuals, baselines, regret, calibration, and stability",
+          "remediation": "Benchmark every possible route and repeat routing decisions."
+        },
+        {
+          "check_id": "SY04",
+          "title": "Agent/application evaluation",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": {
+            "required": false,
+            "configured": true
+          },
+          "requirement": "Long-horizon outcome/state verification",
+          "remediation": "Grade environment outcomes, side effects, and trajectory budgets."
+        },
+        {
+          "check_id": "SY05",
+          "title": "Embedding/reranker evaluation",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": {
+            "required": false,
+            "configured": true
+          },
+          "requirement": "IR metrics, hard negatives, multilingual and domain slices",
+          "remediation": "Use nDCG/MRR/recall and calibrated retrieval datasets."
+        },
+        {
+          "check_id": "SY06",
+          "title": "Modality-specific graders",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "Validated graders for each advertised modality",
+          "remediation": "Do not force non-text outputs through a generic text judge."
+        },
+        {
+          "check_id": "SY07",
+          "title": "Judge validation",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": {
+            "validated": true,
+            "agreement": 0.85
+          },
+          "requirement": "Blind human validation with >=0.80 agreement target",
+          "remediation": "Validate automated graders by task, language, model family, and score band."
+        },
+        {
+          "check_id": "SY08",
+          "title": "Judge-bias controls",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": {
+            "panel": true,
+            "blind": true
+          },
+          "requirement": "Multi-family panel, blind labels, randomized order, position-bias checks",
+          "remediation": "Use objective graders where possible and audited panels otherwise."
+        },
+        {
+          "check_id": "SY09",
+          "title": "Capability saturation policy",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": 0.95,
+          "requirement": "Predeclared task retirement/replacement threshold",
+          "remediation": "Retire tracks that no longer discriminate systems."
+        }
+      ]
+    },
+    {
+      "dimension": "governance_and_external_auditability",
+      "score": 10.0,
+      "passed": true,
+      "checks": [
+        {
+          "check_id": "GO01",
+          "title": "Versioned public protocol",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": {
+            "version": "KGBP-1.0",
+            "public": true
+          },
+          "requirement": "Public semantic version, scope, and normative rules",
+          "remediation": "Publish the protocol and preserve every superseded version."
+        },
+        {
+          "check_id": "GO02",
+          "title": "Preregistration",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": true,
+          "requirement": "Timestamped hypotheses, endpoints, exclusions, and analysis plan",
+          "remediation": "Preregister before revealing model identities/results."
+        },
+        {
+          "check_id": "GO03",
+          "title": "Independent review plan",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": {
+            "reviewers": 3,
+            "replications": 2
+          },
+          "requirement": "At least 2 external reviewers and 2 independent replications",
+          "remediation": "Create a neutral review board and fund independent replication."
+        },
+        {
+          "check_id": "GO04",
+          "title": "Conflict and funding disclosure",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": {
+            "conflicts": true,
+            "funding": true
+          },
+          "requirement": "Public conflicts, funding, credits, and vendor participation",
+          "remediation": "Disclose incentives and prohibit result-contingent compensation."
+        },
+        {
+          "check_id": "GO05",
+          "title": "Public change process",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "Public RFC, change log, compatibility policy, and deprecation window",
+          "remediation": "Use open multistakeholder governance for normative changes."
+        },
+        {
+          "check_id": "GO06",
+          "title": "Appeals and corrections",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "Time-bounded appeal, adjudication, correction, and invalidation process",
+          "remediation": "Let providers and researchers challenge broken items or identities transparently."
+        },
+        {
+          "check_id": "GO07",
+          "title": "Benchmark card",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": true,
+          "requirement": "Claim, population, construction, limitations, risks, and intended use",
+          "remediation": "Publish a benchmark card with every release."
+        },
+        {
+          "check_id": "GO08",
+          "title": "Inclusive governance",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": {
+            "stakeholders": 5,
+            "regions": 5
+          },
+          "requirement": "At least 4 stakeholder groups across 3 world regions",
+          "remediation": "Include academia, industry, civil society, deployers, and affected communities."
+        },
+        {
+          "check_id": "GO09",
+          "title": "Ethics, accessibility, and licensing",
+          "passed": true,
+          "weight": 1.0,
+          "critical": true,
+          "observed": true,
+          "requirement": "Ethics, accessibility, data rights, licenses, and participant protections",
+          "remediation": "Complete review before data collection or publication."
+        },
+        {
+          "check_id": "GO10",
+          "title": "Standards crosswalk",
+          "passed": true,
+          "weight": 1.0,
+          "critical": false,
+          "observed": [
+            "NIST-AI-RMF",
+            "ISO-IEC-25059",
+            "ISO-IEC-23894",
+            "ISO-IEC-42001",
+            "MLPerf-principles"
+          ],
+          "requirement": "Crosswalk to NIST, ISO quality/risk/governance, and MLPerf principles",
+          "remediation": "Maintain a clause-level, versioned standards mapping."
+        }
+      ]
+    }
+  ]
+}

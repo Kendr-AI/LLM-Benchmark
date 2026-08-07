@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kendr.ai/schemas/llm-benchmark-protocol/answer-1.0.json",
+  "title": "LLM Benchmark Protocol final answer record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "schedule_id", "answer_id", "attempt_ids", "status", "content_sha256", "selected_attempt", "finalized_at"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "run_id": {"type": "string", "minLength": 1},
+    "schedule_id": {"type": "string", "minLength": 1},
+    "answer_id": {"type": "string", "minLength": 1},
+    "attempt_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true},
+    "status": {"enum": ["success", "provider_failure", "timeout", "invalid", "policy_block", "missing"]},
+    "content_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "selected_attempt": {"type": ["integer", "null"], "minimum": 1},
+    "finalized_at": {"type": "string", "format": "date-time"},
+    "redaction_applied": {"type": "boolean"}
+  }
+}

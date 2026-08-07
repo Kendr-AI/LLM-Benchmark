@@ -5,8 +5,10 @@ from kendr_bench.scoring import (
     bootstrap_ci,
     category_scores,
     failed_question_ids,
+    holm_adjust,
     normalized_scores,
     paired_deltas,
+    paired_randomization_test,
     percentile,
     separation_tiers,
     stable_seed,
@@ -105,6 +107,39 @@ def test_paired_deltas_uses_only_shared_questions():
     left = {"a": 1.0, "b": 0.0, "only-left": 1.0}
     right = {"a": 0.0, "b": 0.0, "only-right": 1.0}
     assert paired_deltas(left, right) == [1.0, 0.0]
+
+
+def test_paired_randomization_test_is_exact_for_small_samples():
+    result = paired_randomization_test([1.0, 1.0, 1.0], seed=1)
+
+    # Only the all-positive and all-negative assignments are at least as
+    # extreme as the observed sum: 2 / 2**3.
+    assert result["p_value"] == 0.25
+    assert result["method"] == "exact"
+    assert result["permutations"] == 8
+    assert result["nonzero_pairs"] == 3
+
+
+def test_paired_randomization_test_handles_ties_and_empty_samples():
+    tied = paired_randomization_test([0.0, 0.0], seed=1)
+    empty = paired_randomization_test([], seed=1)
+
+    assert tied["p_value"] == 1.0
+    assert tied["nonzero_pairs"] == 0
+    assert empty["p_value"] is None
+
+
+def test_holm_adjust_controls_one_family_and_preserves_missing_tests():
+    adjusted = holm_adjust(
+        {"a": 0.01, "b": 0.03, "c": 0.04, "missing": None}
+    )
+
+    assert adjusted == {
+        "a": 0.03,
+        "b": 0.06,
+        "c": 0.06,
+        "missing": None,
+    }
 
 
 def test_separation_tiers_keeps_overlapping_intervals_together():

@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use the protocol, software, or published pilot results, cite this release and identify the exact benchmark round."
+title: "LLM Benchmark Protocol"
+type: software
+version: 1.0.0
+date-released: 2026-08-08
+authors:
+  - name: "Kendr AI Evaluation Engineering"
+repository-code: "https://github.com/Kendr-AI/LLM-Benchmark"
+url: "https://github.com/Kendr-AI/LLM-Benchmark"
+license: MIT
+keywords:
+  - artificial intelligence evaluation
+  - benchmarking
+  - large language models
+  - measurement science
+  - reproducibility
+abstract: >-
+  LLM Benchmark Protocol is a claim-first, system-aware, failure-aware, and
+  governance-ready framework and Python reference implementation for evaluating
+  language models, managed endpoints, routers, agents, and AI applications.
+preferred-citation:
+  type: report
+  title: "LLM Benchmark Protocol 1.0: Technical White Paper"
+  year: 2026
+  authors:
+    - name: "Kendr AI Evaluation Engineering"
+  url: "https://github.com/Kendr-AI/LLM-Benchmark/releases/tag/v1.0.0"

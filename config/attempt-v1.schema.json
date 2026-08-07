@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kendr.ai/schemas/llm-benchmark-protocol/attempt-1.0.json",
+  "title": "LLM Benchmark Protocol request attempt",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema_version", "run_id", "schedule_id", "attempt_id", "attempt_number", "provider", "requested_model", "started_at", "finished_at", "latency_ms", "status", "request_parameters_sha256"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "run_id": {"type": "string", "minLength": 1},
+    "schedule_id": {"type": "string", "minLength": 1},
+    "attempt_id": {"type": "string", "minLength": 1},
+    "attempt_number": {"type": "integer", "minimum": 1},
+    "provider": {"type": "string", "minLength": 1},
+    "requested_model": {"type": "string", "minLength": 1},
+    "actual_model": {"type": ["string", "null"]},
+    "started_at": {"type": "string", "format": "date-time"},
+    "finished_at": {"type": "string", "format": "date-time"},
+    "latency_ms": {"type": "number", "minimum": 0},
+    "status": {"enum": ["success", "provider_failure", "timeout", "client_failure", "cancelled"]},
+    "error_type": {"type": ["string", "null"]},
+    "will_retry": {"type": "boolean"},
+    "input_tokens": {"type": ["integer", "null"], "minimum": 0},
+    "output_tokens": {"type": ["integer", "null"], "minimum": 0},
+    "cost_usd": {"type": ["number", "null"], "minimum": 0},
+    "request_parameters_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

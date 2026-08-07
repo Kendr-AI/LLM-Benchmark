@@ -15,6 +15,7 @@ from .providers import (
     KendrProvider,
     OpenAIProvider,
 )
+from .resources import bundled_resource
 from .runner import load_cases, run_benchmark
 
 
@@ -37,8 +38,11 @@ def _positive_decimal(value: str) -> Decimal:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="kendr-bench",
-        description="Benchmark OpenAI and Kendr token usage, cost, and latency.",
+        prog="llm-benchmark",
+        description=(
+            "Run a small, instrumented comparison of OpenAI and Kendr endpoints "
+            "for quality, token usage, cost, latency, and reliability."
+        ),
     )
     parser.add_argument(
         "--providers",
@@ -59,7 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--cases",
         type=Path,
-        default=Path("benchmarks/cases.jsonl"),
+        default=bundled_resource("cases.jsonl"),
         help="JSONL benchmark case file",
     )
     parser.add_argument(
@@ -71,7 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--pricing",
         type=Path,
-        default=Path("config/pricing.json"),
+        default=bundled_resource("pricing.json"),
         help="Versioned provider pricing file",
     )
     parser.add_argument("--openai-model", default="gpt-5.6-sol")

@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Scan full Git history with Gitleaks 8.30.1
+        run: |
+          curl --fail --silent --show-error --location \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            --output /tmp/gitleaks.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tar.gz" \
+            | sha256sum --check --strict
+          tar --extract --gzip --file /tmp/gitleaks.tar.gz --directory /tmp gitleaks
+          /tmp/gitleaks git . --redact --no-banner --no-color
+
+  test:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install
+        run: python -m pip install -e ".[dev,docs]"
+      - name: Unit tests
+        run: python -m pytest
+      - name: Compile
+        run: python -m compileall -q src scripts
+      - name: Audit reference protocol
+        run: >-
+          llm-benchmark-protocol audit
+          config/global-protocol-v1.example.json
+          --output build/protocol-audit
+          --strict
+      - name: Verify release bundle
+        run: python scripts/verify_release.py
+
+  windows-smoke:
+    name: Windows package smoke test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Unit tests
+        run: python -m pytest
+      - name: Public CLI smoke tests
+        run: |
+          llm-benchmark --help
+          llm-benchmark-livebench --help
+          llm-benchmark-matrix --help
+          llm-benchmark-protocol --help
+
+  package:
+    name: Build package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: python -m pip install build
+      - run: python -m build
+      - name: Verify wheel installation
+        shell: bash
+        run: |
+          python -m venv build/wheel-check
+          build/wheel-check/bin/python -m pip install dist/*.whl
+          build/wheel-check/bin/llm-benchmark --help
+          build/wheel-check/bin/llm-benchmark-protocol --help
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-distributions
+          path: dist/*
+          if-no-files-found: error

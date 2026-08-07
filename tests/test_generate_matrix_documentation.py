@@ -33,6 +33,9 @@ def _summary(
     tokens_per_quality_point: float | None = 100.0,
     usd_per_quality_point: float | None = 0.005,
     quality_points_per_usd: float | None = 200.0,
+    cost_total_is_lower_bound: bool = False,
+    token_total_is_lower_bound: bool = False,
+    answer_success_rate: float = 1.0,
 ) -> dict[str, Any]:
     return {
         "run_id": f"run-{requested_model}",
@@ -44,6 +47,8 @@ def _summary(
             "output_tokens": 500,
             "total_tokens": 1500,
             "cost_usd": cost_usd,
+            "cost_total_is_lower_bound": cost_total_is_lower_bound,
+            "token_total_is_lower_bound": token_total_is_lower_bound,
             "kendr_credits": "5.000000",
             "maximum_output_tokens_observed": 3000,
         },
@@ -69,9 +74,9 @@ def _summary(
             "failed_request_ms": {"mean": None, "p50": None, "p95": None},
         },
         "reliability": {
-            "successful_answers": questions,
-            "failed_answers": 0,
-            "answer_success_rate": 1.0,
+            "successful_answers": round(questions * answer_success_rate),
+            "failed_answers": questions - round(questions * answer_success_rate),
+            "answer_success_rate": answer_success_rate,
             "scoring_coverage": 1.0,
             "output_cap_compliance_rate": 1.0,
             "calls_exceeding_requested_output_cap": 0,
@@ -234,7 +239,11 @@ def test_generator_runs_on_a_subset_without_the_baseline_model(
     assert "GLM-5" in report
     # No baseline, so efficiency multipliers must degrade to n/a, not crash.
     assert "n/a×" in report or "n/a" in report
-    assert (root / "methodology-and-model-documentation.md").is_file()
+    methodology = (
+        root / "methodology-and-model-documentation.md"
+    ).read_text(encoding="utf-8")
+    assert "Requested endpoint ID" in methodology
+    assert "Final records" in methodology
     assert (root / "model-metrics.csv").is_file()
 
 
@@ -279,6 +288,165 @@ def test_generator_survives_a_model_that_scored_zero_quality_points(
     zero = next(row for row in rows if row["panel_key"] == "glm-5")
     assert zero["quality_score"] == "0.0"
     assert zero["tokens_per_quality_point"] == ""
+
+
+def test_generator_marks_lower_bound_cost_and_efficiency(
+    generator, tmp_path, monkeypatch
+):
+    root = tmp_path / "matrix"
+    models = [
+        _spec("openai-sol", "gpt-5.6-sol", "OpenAI GPT-5.6 Sol"),
+        _spec("glm-5", "kc-glm-5", "GLM-5"),
+    ]
+    _build_matrix(root, models)
+    scores = [("q1", "math", 1.0), ("q2", "math", 1.0)]
+    _write_run(
+        root / "runs",
+        key="sol",
+        requested_model="gpt-5.6-sol",
+        scores=scores,
+        summary_overrides={
+            "usd_per_quality_point": 0.005,
+            "quality_points_per_usd": 200.0,
+        },
+    )
+    _write_run(
+        root / "runs",
+        key="glm",
+        requested_model="kc-glm-5",
+        scores=scores,
+        summary_overrides={
+            "cost_usd": "0.010000",
+            "usd_per_quality_point": 0.005,
+            "quality_points_per_usd": 200.0,
+            "cost_total_is_lower_bound": True,
+            "token_total_is_lower_bound": True,
+        },
+    )
+
+    monkeypatch.setattr("sys.argv", ["generate", str(root)])
+    assert generator.main() == 0
+
+    report = (root / "detailed-report.md").read_text(encoding="utf-8")
+    assert "≥$0.010000" in report
+    assert "≤200.0" in report
+    assert "≤1.00×" in report
+    assert "≥1,000" in report
+    assert "≥100" in report
+
+
+def test_generator_gates_relative_efficiency_below_reliability_floor(
+    generator, tmp_path, monkeypatch
+):
+    root = tmp_path / "matrix"
+    models = [
+        _spec("openai-sol", "gpt-5.6-sol", "OpenAI GPT-5.6 Sol"),
+        _spec("kendr-intelligent", "kendr-intelligent", "Kendr Intelligent"),
+    ]
+    _build_matrix(root, models)
+    scores = [("q1", "math", 1.0), ("q2", "math", 1.0), ("q3", "math", 1.0)]
+    _write_run(
+        root / "runs",
+        key="sol",
+        requested_model="gpt-5.6-sol",
+        scores=scores,
+    )
+    _write_run(
+        root / "runs",
+        key="kendr",
+        requested_model="kendr-intelligent",
+        scores=scores,
+        summary_overrides={"answer_success_rate": 2 / 3},
+    )
+
+    monkeypatch.setattr("sys.argv", ["generate", str(root)])
+    assert generator.main() == 0
+
+    report = (root / "detailed-report.md").read_text(encoding="utf-8")
+    efficiency = report.split("## Efficiency", 1)[1].split(
+        "## Reliability", 1
+    )[0]
+    kendr_row = next(
+        line for line in efficiency.splitlines() if "Kendr Intelligent" in line
+    )
+    assert kendr_row.endswith("n/a | n/a |")
+    assert "Kendr Intelligent was" not in report
+    assert "That cost ratio compares" not in report
+
+
+def test_question_rows_accumulate_all_retry_attempt_telemetry(generator):
+    failed_attempt = {
+        "request_id": "failed",
+        "attempt_number": 1,
+        "usage": {"prompt_tokens": 100, "completion_tokens": 2048},
+        "latency_ms": 40000.0,
+        "retry_reason": "no_credits_charged",
+        "error": {"type": "UpstreamFailure"},
+    }
+    final_attempt = {
+        "request_id": "success",
+        "attempt_number": 2,
+        "usage": {"prompt_tokens": 120, "completion_tokens": 30},
+        "latency_ms": 1000.0,
+        "cost_usd": "0.004",
+        "kendr_credits": "2",
+        "kendr_routing": {
+            "selected_model_alias": "kc-final",
+            "provider_model": "provider-final",
+        },
+    }
+    panel = {
+        "kendr-intelligent": {
+            "spec": {"label": "Kendr Intelligent"},
+            "answers": [
+                {
+                    "question_id": "q1",
+                    "choices": [{"turns": ["answer"]}],
+                    "api_info": {
+                        "benchmark_calls": [failed_attempt, final_attempt]
+                    },
+                }
+            ],
+            "judgments": [
+                {"question_id": "q1", "task": "math", "score": 1.0}
+            ],
+            "summary": {
+                "operations": {
+                    "question_results": [
+                        {
+                            "question_id": "q1",
+                            "attempt_count": 2,
+                            "retry_count": 1,
+                            "observed_cumulative_cost_usd": "0.004",
+                            "cumulative_cost_usd": "0.004",
+                            "cost_complete": True,
+                            "observed_cumulative_latency_ms": 41000.0,
+                            "cumulative_latency_ms": 41000.0,
+                            "latency_complete": True,
+                            "output_cap": {
+                                "status": "pass",
+                                "maximum_observed_output_tokens": 2048,
+                            },
+                        }
+                    ]
+                }
+            },
+        }
+    }
+
+    rows = generator.build_question_rows(panel, requested_cap=2048)
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["attempt_count"] == 2
+    assert row["retry_count"] == 1
+    assert row["reported_cumulative_input_tokens"] == 220
+    assert row["reported_cumulative_output_tokens"] == 2078
+    assert row["reported_cumulative_total_tokens"] == 2298
+    assert row["observed_cumulative_cost_usd"] == "0.004"
+    assert row["cumulative_latency_ms"] == 41000.0
+    assert row["final_attempt_selected_route"] == "kc-final"
+    assert row["output_cap_status"] == "pass"
 
 
 def test_generator_bootstraps_the_normalized_scores_not_raw_judgments(
@@ -340,6 +508,48 @@ def test_generator_reports_missing_runs_instead_of_raising(
     monkeypatch.setattr("sys.argv", ["generate", str(root)])
     assert generator.main() == 0
     assert "Kimi K2.5" in capsys.readouterr().err
+
+
+def test_generator_uses_canonical_run_instead_of_later_rerun(
+    generator, tmp_path
+):
+    root = tmp_path / "matrix"
+    spec = _spec("glm-5", "kc-glm-5", "GLM-5")
+    _build_matrix(root, [spec])
+    scores = [("q1", "math", 1.0)]
+    _write_run(
+        root / "runs",
+        key="first",
+        requested_model="kc-glm-5",
+        scores=scores,
+    )
+    _write_run(
+        root / "runs",
+        key="rerun",
+        requested_model="kc-glm-5",
+        scores=[("q1", "math", 0.0)],
+    )
+    first = (root / "runs" / "run-first").resolve()
+    (root / "leaderboard.json").write_text(
+        json.dumps(
+            {
+                "results": [
+                    {
+                        "panel_key": "glm-5",
+                        "run_dir": str(first),
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    panel = generator.find_runs(root, json.loads((root / "manifest.json").read_text()))
+
+    assert panel["glm-5"]["run_dir"] == first
+    assert panel["glm-5"]["summary"]["current_run_quality"][
+        "objective_score_mean"
+    ] == 1.0
 
 
 def test_generator_exits_nonzero_when_there_is_nothing_to_report(

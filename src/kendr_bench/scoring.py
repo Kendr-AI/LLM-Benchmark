@@ -10,6 +10,7 @@ directory disagree about the same capability score.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import random
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -167,6 +168,106 @@ def paired_deltas(
         left[question_id] - right[question_id]
         for question_id in sorted(left.keys() & right.keys())
     ]
+
+
+def paired_randomization_test(
+    deltas: Sequence[float],
+    *,
+    seed: int,
+    exact_max_nonzero: int = 18,
+    iterations: int = 200_000,
+) -> dict[str, Any]:
+    """Two-sided paired sign-randomization test for a zero mean difference.
+
+    Under the null, swapping the two model labels independently for each
+    question changes only the sign of that question's delta.  This preserves
+    the paired design, unlike comparing two marginal confidence intervals.
+    Tied questions carry no information for the randomization distribution and
+    are omitted from enumeration, while the reported ``n`` still describes the
+    full paired sample.
+    """
+    values = [float(value) for value in deltas]
+    nonzero = [abs(value) for value in values if value != 0]
+    if not values:
+        return {
+            "p_value": None,
+            "n": 0,
+            "nonzero_pairs": 0,
+            "method": "unavailable",
+            "permutations": 0,
+        }
+    if not nonzero:
+        return {
+            "p_value": 1.0,
+            "n": len(values),
+            "nonzero_pairs": 0,
+            "method": "exact",
+            "permutations": 1,
+        }
+
+    # The denominator of the mean is constant under every label swap, so
+    # comparing absolute sums is equivalent and avoids unnecessary rounding.
+    observed = abs(sum(values))
+    tolerance = 1e-12
+    if len(nonzero) <= exact_max_nonzero:
+        extreme = 0
+        total = 0
+        for signs in itertools.product((-1.0, 1.0), repeat=len(nonzero)):
+            randomized = sum(
+                sign * magnitude
+                for sign, magnitude in zip(signs, nonzero)
+            )
+            extreme += abs(randomized) + tolerance >= observed
+            total += 1
+        p_value = extreme / total
+        method = "exact"
+    else:
+        rng = random.Random(seed)
+        extreme = 0
+        for _ in range(iterations):
+            randomized = sum(
+                magnitude if rng.getrandbits(1) else -magnitude
+                for magnitude in nonzero
+            )
+            extreme += abs(randomized) + tolerance >= observed
+        # The plus-one correction prevents an estimated p-value of zero.
+        p_value = (extreme + 1) / (iterations + 1)
+        total = iterations
+        method = "monte_carlo"
+    return {
+        "p_value": p_value,
+        "n": len(values),
+        "nonzero_pairs": len(nonzero),
+        "method": method,
+        "permutations": total,
+    }
+
+
+def holm_adjust(p_values: Mapping[str, float | None]) -> dict[str, float | None]:
+    """Holm step-down family-wise error correction.
+
+    Missing tests remain missing and do not enlarge the tested family.  The
+    cumulative maximum is essential: without it, adjusted p-values can become
+    smaller as raw p-values become larger.
+    """
+    available = sorted(
+        (
+            (key, float(value))
+            for key, value in p_values.items()
+            if value is not None
+        ),
+        key=lambda item: (item[1], item[0]),
+    )
+    adjusted: dict[str, float | None] = {
+        key: None for key in p_values
+    }
+    family_size = len(available)
+    running = 0.0
+    for index, (key, p_value) in enumerate(available):
+        candidate = min(1.0, p_value * (family_size - index))
+        running = max(running, candidate)
+        adjusted[key] = running
+    return adjusted
 
 
 def separation_tiers(

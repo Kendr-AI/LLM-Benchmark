@@ -1,0 +1,38 @@
+name: Protocol change
+description: Propose a normative protocol, schema, or ranking change
+title: "[Protocol]: "
+labels: [protocol]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Measurement problem
+      description: State the claim or validity failure this proposal addresses.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed normative change
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility and migration
+      description: Explain impact on schemas, estimands, historical rounds, and versioning.
+    validations:
+      required: true
+  - type: textarea
+    id: conflicts
+    attributes:
+      label: Interests and affiliations
+      description: Disclose provider relationships, funding, credits, or other relevant interests.
+    validations:
+      required: true

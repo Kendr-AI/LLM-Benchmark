@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 import os
@@ -21,12 +22,14 @@ from .livebench_adapter import (
     KENDR_LIVEBENCH_CALL_LOG,
     KENDR_LIVEBENCH_RUN_ID,
     KENDR_LIVEBENCH_USD_PER_CREDIT,
+    KENDR_OUTPUT_CAP_COMPATIBILITY_PATCH,
     LIVEBENCH_PRICING_PATH,
     OPENAI_LIVEBENCH_REASONING_EFFORT,
     recovered_call_usage,
 )
 from .providers import KENDR_DEFAULT_USD_PER_CREDIT
 from .livebench_worker import INSTRUCTION_FOLLOWING_COMPATIBILITY_PATCH
+from .operations import compute_operational_metrics, group_call_attempts
 from .scoring import (
     answer_failed,
     bootstrap_ci,
@@ -36,15 +39,24 @@ from .scoring import (
     normalized_scores,
     stable_seed,
 )
+from .resources import bundled_resource
 
 LIVEBENCH_REPOSITORY = "https://github.com/LiveBench/LiveBench.git"
 LIVEBENCH_REVISION = "4355e9b04222745ccc02a2661d1deebe767a85a2"
 DEFAULT_LIVEBENCH_ROOT = Path(".vendor/LiveBench")
-DEFAULT_LIVEBENCH_CONSTRAINTS = Path("config/livebench-constraints.txt")
+DEFAULT_LIVEBENCH_CONSTRAINTS = bundled_resource("livebench-constraints.txt")
 DEFAULT_API_BASE = "https://kendr.org/v1"
 OPENAI_API_BASE = "https://api.openai.com/v1"
-DEFAULT_PRICING_PATH = Path("config/pricing.json")
+DEFAULT_PRICING_PATH = bundled_resource("pricing.json")
 DEFAULT_RELEASE = "2024-11-25"
+LIVEBENCH_CATEGORIES = (
+    "coding",
+    "data_analysis",
+    "instruction_following",
+    "language",
+    "math",
+    "reasoning",
+)
 DEFAULT_BENCHMARKS = (
     "live_bench/coding",
     "live_bench/data_analysis",
@@ -243,6 +255,31 @@ def _add_shared_run_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--skip-grading", action="store_true")
     parser.add_argument("--ignore-missing-answers", action="store_true")
     parser.add_argument(
+        "--deadline-ms",
+        type=_positive_int,
+        default=None,
+        help=(
+            "Optional final-answer deadline. Retries count toward this "
+            "logical-request latency budget."
+        ),
+    )
+    parser.add_argument(
+        "--max-cost-usd-per-answer",
+        type=_positive_decimal,
+        default=None,
+        help=(
+            "Optional per-question USD budget. All retry attempts count."
+        ),
+    )
+    parser.add_argument(
+        "--allow-incomplete",
+        action="store_true",
+        help=(
+            "Export an incomplete run instead of failing after artifacts are "
+            "written. Missing planned questions still score zero."
+        ),
+    )
+    parser.add_argument(
         "--kendr-usd-per-credit",
         type=_positive_decimal,
         default=None,
@@ -275,7 +312,7 @@ def _add_shared_run_arguments(parser: argparse.ArgumentParser) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="kendr-livebench",
+        prog="llm-benchmark-livebench",
         description=(
             "Run kendr-intelligent through pinned, unmodified LiveBench questions "
             "and graders while retaining Kendr cost and routing metadata."
@@ -311,6 +348,29 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_LIVEBENCH_ROOT,
     )
     summarize.add_argument(
+        "--kendr-usd-per-credit",
+        type=_positive_decimal,
+        default=None,
+    )
+
+    finalize = subparsers.add_parser(
+        "finalize",
+        help=(
+            "Grade and export an interrupted run whose provider calls and "
+            "LiveBench workspace answers already exist; inference is never "
+            "replayed"
+        ),
+    )
+    finalize.add_argument("run_dir", type=Path)
+    finalize.add_argument(
+        "--livebench-root",
+        type=Path,
+        default=DEFAULT_LIVEBENCH_ROOT,
+    )
+    finalize.add_argument(
+        "--parallel-grading", type=_positive_int, default=4
+    )
+    finalize.add_argument(
         "--kendr-usd-per-credit",
         type=_positive_decimal,
         default=None,
@@ -470,7 +530,204 @@ def _read_calls(path: Path) -> list[dict[str, Any]]:
     return _read_jsonl([path])
 
 
+def _iso_date_text(value: Any, *, field: str) -> str:
+    """Normalize Arrow/Python LiveBench dates to canonical YYYY-MM-DD."""
+    if value in (None, ""):
+        return ""
+    if hasattr(value, "date") and not isinstance(value, str):
+        value = value.date()
+    if hasattr(value, "isoformat") and not isinstance(value, str):
+        value = value.isoformat()
+    text = str(value)
+    # Some dataset versions stringify midnight datetimes rather than dates.
+    candidate = text[:10]
+    try:
+        datetime.strptime(candidate, "%Y-%m-%d")
+    except ValueError as exc:
+        raise RuntimeError(
+            f"LiveBench {field} is not an ISO date: {text!r}"
+        ) from exc
+    return candidate
+
+
+def _benchmark_selection(
+    bench_names: Sequence[str],
+) -> dict[str, set[str] | None]:
+    """Parse LiveBench paths without the upstream multi-word-category bug."""
+    selection: dict[str, set[str] | None] = {}
+    for bench_name in bench_names:
+        parts = bench_name.rstrip("/").split("/")
+        if not parts or parts[0] != "live_bench" or len(parts) > 3:
+            raise RuntimeError(f"Invalid LiveBench path: {bench_name!r}")
+        categories = LIVEBENCH_CATEGORIES if len(parts) == 1 else (parts[1],)
+        for category in categories:
+            if category not in LIVEBENCH_CATEGORIES:
+                raise RuntimeError(
+                    f"Unsupported LiveBench category in {bench_name!r}: "
+                    f"{category!r}"
+                )
+            task = parts[2] if len(parts) == 3 else None
+            if task is None or selection.get(category) is None and category in selection:
+                selection[category] = None
+            else:
+                selection.setdefault(category, set())
+                selected_tasks = selection[category]
+                if selected_tasks is not None:
+                    selected_tasks.add(task)
+    return selection
+
+
+def load_livebench_question_records(
+    bench_names: Sequence[str], release_option: str
+) -> list[dict[str, Any]]:
+    """Load the exact active cumulative LiveBench pool for preflight sampling.
+
+    LiveBench's release option is cumulative.  Resolving the pool before any
+    provider call lets callers freeze exact IDs, inspect actual question dates,
+    and use the same sample for every endpoint.
+    """
+    try:
+        from datasets import load_dataset
+    except ImportError as exc:  # pragma: no cover - setup error path
+        raise RuntimeError(
+            "The LiveBench runtime is not installed; run `llm-benchmark-livebench "
+            "setup` first."
+        ) from exc
+
+    cutoff = _iso_date_text(release_option, field="release option")
+    selection = _benchmark_selection(bench_names)
+    records: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for category, tasks in selection.items():
+        dataset = load_dataset(f"livebench/{category}", split="test")
+        for raw in dataset:
+            record = dict(raw)
+            task = str(record.get("task") or "")
+            if tasks is not None and task not in tasks:
+                continue
+            released = _iso_date_text(
+                record.get("livebench_release_date"),
+                field="livebench_release_date",
+            )
+            removed = _iso_date_text(
+                record.get("livebench_removal_date"),
+                field="livebench_removal_date",
+            )
+            if not released or released > cutoff:
+                continue
+            if removed and removed <= cutoff:
+                continue
+            question_id = str(record.get("question_id") or "")
+            if not question_id:
+                raise RuntimeError(
+                    f"LiveBench {category}/{task} contains an empty question ID"
+                )
+            if question_id in seen_ids:
+                # Overlapping user paths may select the same row twice. The
+                # benchmark unit is still one globally identified question.
+                continue
+            seen_ids.add(question_id)
+            record["category"] = category
+            record["task"] = task
+            record["livebench_release_date"] = released
+            record["livebench_removal_date"] = removed
+            records.append(record)
+    if not records:
+        raise RuntimeError(
+            "No active LiveBench questions matched the requested paths and "
+            f"release {release_option}."
+        )
+    return records
+
+
+def _planned_question_records(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    question_ids: Sequence[str] | None,
+    question_begin: int | None,
+    question_end: int | None,
+) -> list[dict[str, Any]]:
+    """Resolve LiveBench's per-task slice into an immutable question plan."""
+    if question_ids:
+        by_id = {str(record.get("question_id")): record for record in records}
+        missing = [question_id for question_id in question_ids if question_id not in by_id]
+        if missing:
+            raise RuntimeError(
+                "Requested question IDs are absent from the active pool: "
+                + ", ".join(missing)
+            )
+        return [dict(by_id[question_id]) for question_id in question_ids]
+
+    grouped: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
+    for record in records:
+        key = (str(record.get("category")), str(record.get("task")))
+        grouped.setdefault(key, []).append(record)
+    begin = question_begin or 0
+    planned: list[dict[str, Any]] = []
+    for rows in grouped.values():
+        planned.extend(dict(record) for record in rows[begin:question_end])
+    if not planned:
+        raise RuntimeError("The requested per-task slice selected no questions.")
+    return planned
+
+
+def _planned_question_descriptors(
+    records: Sequence[Mapping[str, Any]],
+) -> list[dict[str, str]]:
+    return [
+        {
+            "question_id": str(record.get("question_id")),
+            "category": str(record.get("category") or "unknown"),
+            "task": str(record.get("task") or "unknown"),
+            "livebench_release_date": _iso_date_text(
+                record.get("livebench_release_date"),
+                field="livebench_release_date",
+            ),
+        }
+        for record in records
+    ]
+
+
+def _json_sha256(value: Any) -> str:
+    payload = json.dumps(
+        value,
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _write_artifact_hashes(root: Path) -> dict[str, dict[str, Any]]:
+    """Write a compact integrity manifest for exported top-level artifacts."""
+    records: dict[str, dict[str, Any]] = {}
+    for path in sorted(root.iterdir()):
+        if (
+            not path.is_file()
+            or path.name == "artifact_hashes.json"
+        ):
+            continue
+        payload = path.read_bytes()
+        records[path.name] = {
+            "bytes": len(payload),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+        }
+    document = {
+        "schema_version": 1,
+        "algorithm": "sha256",
+        "files": records,
+    }
+    (root / "artifact_hashes.json").write_text(
+        json.dumps(document, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return records
+
+
 def _credits_from_call(call: Mapping[str, Any]) -> Decimal | None:
+    if call.get("retry_reason") == "no_credits_charged":
+        return Decimal(0)
     usage = call.get("kendr_usage")
     if not isinstance(usage, Mapping):
         return None
@@ -486,6 +743,15 @@ def _credits_from_call(call: Mapping[str, Any]) -> Decimal | None:
         value = usage.get(key)
         if value is not None:
             return Decimal(str(value)) / Decimal(1_000_000)
+    return None
+
+
+def _cost_from_call(call: Mapping[str, Any]) -> Decimal | None:
+    value = call.get("cost_usd")
+    if value is not None:
+        return Decimal(str(value))
+    if call.get("retry_reason") == "no_credits_charged":
+        return Decimal(0)
     return None
 
 
@@ -553,30 +819,40 @@ def _current_run_question_ids(
     calls: Sequence[Mapping[str, Any]],
     answers: Sequence[Mapping[str, Any]],
 ) -> set[str]:
-    request_ids = {
-        str(call.get("request_id"))
-        for call in calls
-        if call.get("request_id")
+    """Return answers linked to captured calls using failure-safe identity.
+
+    Provider failures do not always have a request ID. The operational joiner
+    also uses idempotency/logical IDs and an unambiguous canonical-message
+    fallback, so completeness and operational metrics must share that exact
+    association rule.
+    """
+    answer_question_ids = {
+        str(answer.get("question_id"))
+        for answer in answers
+        if answer.get("question_id")
     }
-    question_ids: set[str] = set()
-    for answer in answers:
-        api_info = answer.get("api_info")
-        if not isinstance(api_info, Mapping):
-            continue
-        answer_calls = api_info.get("benchmark_calls")
-        if not isinstance(answer_calls, list):
-            answer_calls = api_info.get("kendr_calls")
-        if not isinstance(answer_calls, list):
-            continue
-        if any(
-            isinstance(item, Mapping)
-            and str(item.get("request_id")) in request_ids
-            for item in answer_calls
-        ):
-            question_id = answer.get("question_id")
-            if question_id:
-                question_ids.add(str(question_id))
-    return question_ids
+    return {
+        str(group["question_id"])
+        for group in group_call_attempts(calls, answers=answers)
+        if group.get("question_id") in answer_question_ids
+    }
+
+
+def _judgment_matches_answer(
+    judgment: Mapping[str, Any], answer: Mapping[str, Any]
+) -> bool:
+    """Reject stale grades when either artifact carries an answer identity."""
+    judgment_answer_id = str(judgment.get("answer_id") or "").strip()
+    answer_id = str(answer.get("answer_id") or "").strip()
+    if judgment_answer_id or answer_id:
+        return bool(
+            judgment_answer_id
+            and answer_id
+            and judgment_answer_id == answer_id
+        )
+    # Older LiveBench artifacts did not always expose answer_id. Preserve
+    # rebuild compatibility only when neither side provides a stronger key.
+    return True
 
 
 def _safe_ratio(numerator: float, denominator: float) -> float | None:
@@ -591,6 +867,16 @@ def _write_metrics_csv(
     efficiency = summary["efficiency"]
     latency = summary["latency"]
     reliability = summary["reliability"]
+    operations = summary.get("operations") or {}
+    retries = operations.get("retries") or {}
+    cap_conformance = reliability.get(
+        "operational_output_cap_conformance", {}
+    )
+    cap_attempt_conformance = (
+        (operations.get("conformance") or {}).get(
+            "output_cap_by_attempt", {}
+        )
+    )
     row = {
         "run_id": summary["run_id"],
         "provider": api.get("provider"),
@@ -599,11 +885,24 @@ def _write_metrics_csv(
         "input_tokens": api["input_tokens"],
         "output_tokens": api["output_tokens"],
         "total_tokens": api["total_tokens"],
+        "usage_records_reported": api.get("usage_records_reported"),
+        "usage_records_missing": api.get("usage_records_missing"),
+        "token_total_is_lower_bound": api.get(
+            "token_total_is_lower_bound"
+        ),
         "kendr_credits": api["kendr_credits"],
         "kendr_cost_usd": api["kendr_cost_usd"],
         "cost_usd": api.get("cost_usd"),
+        "cost_records_reported": api.get("cost_records_reported"),
+        "cost_records_missing": api.get("cost_records_missing"),
+        "cost_total_is_lower_bound": api.get(
+            "cost_total_is_lower_bound"
+        ),
         "questions_matched": quality["questions_matched_to_current_calls"],
         "questions_scored": quality["questions_scored"],
+        "questions_planned": quality.get("questions_planned"),
+        "score_denominator": quality.get("score_denominator"),
+        "complete": (summary.get("completeness") or {}).get("complete"),
         "objective_score_mean": quality["objective_score_mean"],
         "perfect_score_rate": quality["perfect_score_rate"],
         "nonzero_score_rate": quality["nonzero_score_rate"],
@@ -633,12 +932,53 @@ def _write_metrics_csv(
         "latency_p50_ms": latency["end_to_end_ms"]["p50"],
         "latency_p95_ms": latency["end_to_end_ms"]["p95"],
         "latency_p99_ms": latency["end_to_end_ms"]["p99"],
+        "attempt_latency_p50_ms": latency.get("attempt_ms", {}).get(
+            "p50"
+        ),
+        "retry_attempt_amplification": retries.get(
+            "observed_attempt_amplification"
+        ),
+        "retry_latency_amplification": retries.get(
+            "latency_amplification"
+        ),
         "router_latency_mean_ms": latency["router_ms"]["mean"],
         "answer_success_rate": reliability["answer_success_rate"],
         "scoring_coverage": reliability["scoring_coverage"],
-        "output_cap_compliance_rate": reliability[
-            "output_cap_compliance_rate"
-        ],
+        # Keep the established column name, but make its semantics consistent
+        # with matrix exports: unknown planned questions count against the
+        # conservative rate rather than disappearing from the denominator.
+        "output_cap_compliance_rate": cap_conformance.get(
+            "conservative_rate",
+            reliability["output_cap_compliance_rate"],
+        ),
+        "output_cap_measured_rate": cap_conformance.get(
+            "measured_rate", reliability["output_cap_compliance_rate"]
+        ),
+        "output_cap_unknown_questions": cap_conformance.get("unknown", 0),
+        "output_cap_attempt_conservative_rate": (
+            cap_attempt_conformance.get("conservative_rate")
+        ),
+        "output_cap_attempt_measured_rate": cap_attempt_conformance.get(
+            "measured_rate"
+        ),
+        "output_cap_measured_attempts": reliability.get(
+            "output_cap_measured_attempts"
+        ),
+        "output_cap_unknown_attempts": cap_attempt_conformance.get(
+            "unknown", 0
+        ),
+        "deadline_conformance_rate": reliability.get(
+            "deadline_conformance", {}
+        ).get("conservative_rate"),
+        "budget_conformance_rate": reliability.get(
+            "budget_conformance", {}
+        ).get("conservative_rate"),
+        "operational_goodput_rate": reliability.get(
+            "operational_goodput", {}
+        ).get("conservative_rate"),
+        "score_weighted_goodput": reliability.get(
+            "score_weighted_goodput", {}
+        ).get("conservative_mean"),
     }
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(row))
@@ -668,8 +1008,12 @@ def _write_summary(
     latencies: list[float] = []
     failed_request_latencies: list[float] = []
     malformed_cost_records: list[str] = []
+    cost_records_reported = 0
+    usage_records_reported = 0
     for call in calls:
         usage = recovered_call_usage(call)
+        if usage:
+            usage_records_reported += 1
         input_tokens += int(usage.get("prompt_tokens") or 0)
         output_tokens += int(usage.get("completion_tokens") or 0)
         details = usage.get("prompt_tokens_details") or {}
@@ -678,16 +1022,18 @@ def _write_summary(
         if call_credits is not None:
             credits += call_credits
             credits_available = True
-        if call.get("cost_usd") is not None:
-            try:
-                cost_usd += Decimal(str(call["cost_usd"]))
+        try:
+            call_cost = _cost_from_call(call)
+            if call_cost is not None:
+                cost_usd += call_cost
                 cost_usd_available = True
-            except InvalidOperation:
-                # Silently skipping this understated the published total with
-                # no trace, so the count is surfaced in the summary instead.
-                malformed_cost_records.append(
-                    str(call.get("request_id") or "unknown")
-                )
+                cost_records_reported += 1
+        except InvalidOperation:
+            # Silently skipping this understated the published total with no
+            # trace, so the count is surfaced in the summary instead.
+            malformed_cost_records.append(
+                str(call.get("request_id") or "unknown")
+            )
         if call.get("latency_ms") is not None:
             target = (
                 failed_request_latencies
@@ -695,8 +1041,6 @@ def _write_summary(
                 else latencies
             )
             target.append(float(call["latency_ms"]))
-    successful_calls = [call for call in calls if not call.get("error")]
-
     def _reported_output_tokens(call: Mapping[str, Any]) -> int:
         return int(
             recovered_call_usage(call).get("completion_tokens") or 0
@@ -722,24 +1066,77 @@ def _write_summary(
         for call in calls
         if call.get("error")
     )
+    cost_records_missing = len(calls) - cost_records_reported
+    usage_records_missing = len(calls) - usage_records_reported
 
     scores = [
         float(record["score"]) for record in judgments if is_scored(record)
     ]
-    current_question_ids = _current_run_question_ids(calls, answers)
+    call_matched_question_ids = _current_run_question_ids(calls, answers)
+    planned_descriptors = list(
+        getattr(args, "planned_questions", None) or []
+    )
+    planned_question_ids = [
+        str(record.get("question_id"))
+        for record in planned_descriptors
+        if record.get("question_id")
+    ]
+    if not planned_question_ids:
+        planned_question_ids = [
+            str(question_id)
+            for question_id in (
+                getattr(args, "planned_question_ids", None) or []
+            )
+        ]
+    has_planned_contract = bool(planned_question_ids)
+    score_question_ids = (
+        planned_question_ids
+        if has_planned_contract
+        else sorted(call_matched_question_ids)
+    )
+    score_question_id_set = set(score_question_ids)
     current_answers = [
         record
         for record in answers
-        if str(record.get("question_id")) in current_question_ids
+        if str(record.get("question_id")) in score_question_id_set
+    ]
+    answers_by_id = {
+        str(record.get("question_id")): record for record in current_answers
+    }
+    candidate_judgments = [
+        record
+        for record in judgments
+        if str(record.get("question_id")) in score_question_id_set
+        and is_scored(record)
     ]
     current_judgments = [
         record
-        for record in judgments
-        if str(record.get("question_id")) in current_question_ids
-        and is_scored(record)
+        for record in candidate_judgments
+        if (
+            (answer := answers_by_id.get(str(record.get("question_id"))))
+            is not None
+            and _judgment_matches_answer(record, answer)
+        )
     ]
+    judgments_by_id = {
+        str(record.get("question_id")): record
+        for record in current_judgments
+    }
     failed_ids = failed_question_ids(current_answers)
-    current_scores = normalized_scores(current_judgments, failed_ids)
+    if has_planned_contract:
+        # Missing answers, missing judgments, and provider failures are all zero
+        # on the immutable planned denominator. Nothing can disappear merely
+        # because an upstream file was absent.
+        current_scores = [
+            0.0
+            if question_id not in answers_by_id
+            or question_id not in judgments_by_id
+            or question_id in failed_ids
+            else float(judgments_by_id[question_id]["score"])
+            for question_id in score_question_ids
+        ]
+    else:
+        current_scores = normalized_scores(current_judgments, failed_ids)
     quality_points = sum(current_scores)
     # The interval must resample exactly the scores behind the point estimate.
     # Seeding from the requested model keeps it stable across panel subsets.
@@ -749,6 +1146,60 @@ def _write_summary(
     current_failures = sum(
         answer_failed(record) for record in current_answers
     )
+    missing_answer_ids = sorted(
+        score_question_id_set - answers_by_id.keys()
+    )
+    missing_judgment_ids = sorted(
+        score_question_id_set - judgments_by_id.keys()
+    )
+    mismatched_judgment_ids = sorted(
+        {
+            str(record.get("question_id"))
+            for record in candidate_judgments
+            if str(record.get("question_id")) not in judgments_by_id
+        }
+    )
+    missing_call_ids = sorted(
+        score_question_id_set - call_matched_question_ids
+    )
+    unexpected_answer_ids = sorted(
+        {
+            str(record.get("question_id"))
+            for record in answers
+            if record.get("question_id")
+        }
+        - score_question_id_set
+    )
+    completeness = {
+        "contract": (
+            "planned-question-ids-v1"
+            if has_planned_contract
+            else "legacy-observed-answers"
+        ),
+        "strict": bool(
+            has_planned_contract
+            and not getattr(args, "allow_incomplete", False)
+        ),
+        "planned_questions": len(score_question_ids),
+        "answers_present": len(answers_by_id),
+        "judgments_present": len(judgments_by_id),
+        "calls_linked_to_answers": len(
+            score_question_id_set & call_matched_question_ids
+        ),
+        "missing_answer_ids": missing_answer_ids,
+        "missing_judgment_ids": missing_judgment_ids,
+        "mismatched_answer_id_judgment_ids": mismatched_judgment_ids,
+        "missing_call_link_ids": missing_call_ids,
+        "unexpected_answer_ids": unexpected_answer_ids,
+        "complete": bool(
+            has_planned_contract
+            and not missing_answer_ids
+            and not missing_judgment_ids
+            and not missing_call_ids
+        )
+        if has_planned_contract
+        else None,
+    }
     failed_answers = sum(answer_failed(record) for record in answers)
     router_latencies = [
         float(routing["router_latency_ms"])
@@ -779,16 +1230,59 @@ def _write_summary(
         for call in calls
         if call.get("error")
     )
+    operational = compute_operational_metrics(
+        calls,
+        answers=answers,
+        judgments=current_judgments,
+        planned_question_ids=(
+            score_question_ids if has_planned_contract else ()
+        ),
+        deadline_ms=getattr(args, "deadline_ms", None),
+        budget_usd=getattr(args, "max_cost_usd_per_answer", None),
+        output_cap_tokens=args.max_tokens,
+    )
     credits_float = float(credits) if credits_available else 0.0
     if not cost_usd_available and credits_available:
         cost_usd = credits * usd_per_credit
         cost_usd_available = True
     usd_float = float(cost_usd) if cost_usd_available else 0.0
     total_tokens = input_tokens + output_tokens
-    total_latency_ms = sum(latencies)
+    final_answer_latency = operational["questions"][
+        "cumulative_final_answer_latency_ms"
+    ]
+    total_latency_ms = sum(
+        float(record.get("observed_cumulative_latency_ms") or 0)
+        for record in operational["question_results"]
+    )
     total_latency_seconds = total_latency_ms / 1000
-    current_answer_count = len(current_answers)
-    current_scored_count = len(current_scores)
+    observed_scored_count = len(current_judgments)
+    score_denominator = len(current_scores)
+    successful_answer_count = max(
+        0,
+        score_denominator - current_failures - len(missing_answer_ids),
+    )
+    if has_planned_contract and planned_descriptors:
+        metadata_by_id = {
+            str(record.get("question_id")): record
+            for record in planned_descriptors
+        }
+        category_values: dict[str, list[float]] = {}
+        for question_id, score in zip(
+            score_question_ids, current_scores, strict=True
+        ):
+            category = str(
+                metadata_by_id.get(question_id, {}).get("category")
+                or "unknown"
+            )
+            category_values.setdefault(category, []).append(score)
+        planned_category_scores = {
+            category: sum(values) / len(values)
+            for category, values in sorted(category_values.items())
+        }
+    else:
+        planned_category_scores = category_scores(
+            current_judgments, failed_ids
+        )
     summary = {
         "run_id": run_id,
         "model": args.model_display_name,
@@ -807,6 +1301,9 @@ def _write_summary(
             "cached_input_tokens": cached_tokens,
             "output_tokens": output_tokens,
             "total_tokens": input_tokens + output_tokens,
+            "usage_records_reported": usage_records_reported,
+            "usage_records_missing": usage_records_missing,
+            "token_total_is_lower_bound": bool(usage_records_missing),
             "kendr_credits": format(credits, "f")
             if credits_available
             else None,
@@ -816,47 +1313,57 @@ def _write_summary(
             "cost_usd": format(cost_usd, "f")
             if cost_usd_available
             else None,
+            "cost_records_reported": cost_records_reported,
+            "cost_records_missing": cost_records_missing,
+            "cost_total_is_lower_bound": bool(cost_records_missing),
             "usd_per_credit": format(usd_per_credit, "f"),
             "mean_latency_ms": (
                 sum(latencies) / len(latencies) if latencies else None
             ),
+            "mean_final_answer_latency_ms": final_answer_latency["mean"],
             "requested_max_output_tokens": args.max_tokens,
             "calls_exceeding_requested_output_cap": output_cap_violations,
             "maximum_output_tokens_observed": maximum_output_tokens,
             "failed_attempt_output_tokens": failed_attempt_output_tokens,
             "token_totals_include_failed_attempts": True,
         },
+        "completeness": completeness,
         "current_run_quality": {
             "measurement": (
-                "Official LiveBench objective ground-truth scores matched to "
-                "request IDs from this API invocation"
+                "Official LiveBench objective ground-truth scores on the "
+                "immutable planned-question denominator; missing work and "
+                "provider failures score zero"
+                if has_planned_contract
+                else "Legacy observed-only LiveBench scores matched to request "
+                "IDs; no immutable plan was recorded"
             ),
             "questions_matched_to_current_calls": len(
-                current_question_ids
+                call_matched_question_ids & score_question_id_set
             ),
-            "questions_scored": current_scored_count,
+            "questions_planned": score_denominator,
+            "questions_with_judgment": observed_scored_count,
+            "questions_scored": observed_scored_count,
+            "score_denominator": score_denominator,
             "quality_points": quality_points,
             "objective_score_mean": (
-                sum(current_scores) / current_scored_count
-                if current_scored_count
+                quality_points / score_denominator
+                if score_denominator
                 else None
             ),
             "perfect_score_rate": (
                 sum(score >= 1.0 for score in current_scores)
-                / current_scored_count
-                if current_scored_count
+                / score_denominator
+                if score_denominator
                 else None
             ),
             "nonzero_score_rate": (
                 sum(score > 0 for score in current_scores)
-                / current_scored_count
-                if current_scored_count
+                / score_denominator
+                if score_denominator
                 else None
             ),
             "quality_ci95": quality_interval,
-            "category_scores": category_scores(
-                current_judgments, failed_ids
-            ),
+            "category_scores": planned_category_scores,
         },
         "efficiency": {
             "measurement": (
@@ -913,10 +1420,19 @@ def _write_summary(
         },
         "latency": {
             "measurement": (
-                "Client-observed non-streaming end-to-end latency; time to "
-                "first token is unavailable"
+                "Client-observed non-streaming latency. Final-answer latency "
+                "is cumulative across retries and multi-turn calls; time to "
+                "first token is unavailable."
             ),
-            "end_to_end_ms": _distribution_stats(latencies),
+            # Backward-compatible headline key, now corrected to describe what
+            # the benchmark user actually waited for.
+            "end_to_end_ms": final_answer_latency,
+            "final_answer_ms": final_answer_latency,
+            "logical_request_cumulative_ms": operational[
+                "logical_requests"
+            ]["cumulative_latency_ms"],
+            "attempt_ms": operational["attempts"]["latency_ms"],
+            "successful_attempt_ms": _distribution_stats(latencies),
             "failed_request_ms": _distribution_stats(
                 failed_request_latencies
             ),
@@ -926,26 +1442,37 @@ def _write_summary(
             ),
         },
         "reliability": {
-            "successful_answers": current_answer_count - current_failures,
+            "successful_answers": successful_answer_count,
             "failed_answers": current_failures,
+            "missing_answers": len(missing_answer_ids),
             "answer_success_rate": (
-                (current_answer_count - current_failures)
-                / current_answer_count
-                if current_answer_count
+                successful_answer_count / score_denominator
+                if score_denominator
                 else None
             ),
             "scoring_coverage": (
-                current_scored_count / len(current_question_ids)
-                if current_question_ids
+                observed_scored_count / score_denominator
+                if score_denominator
                 else None
             ),
-            "output_cap_compliance_rate": (
-                (len(capped_calls) - output_cap_violations)
-                / len(capped_calls)
-                if capped_calls
-                else None
+            # The headline is conservative question-level conformance. The
+            # measured-only rate remains available explicitly for diagnostics.
+            "output_cap_compliance_rate": operational["conformance"][
+                "output_cap"
+            ]["conservative_rate"],
+            "output_cap_measured_rate": operational["conformance"][
+                "output_cap"
+            ]["measured_rate"],
+            "output_cap_unknown_questions": operational["conformance"][
+                "output_cap"
+            ]["unknown"],
+            "output_cap_measured_attempts": (
+                operational["conformance"]["output_cap_by_attempt"]["pass"]
+                + operational["conformance"]["output_cap_by_attempt"]["fail"]
             ),
-            "output_cap_measured_attempts": len(capped_calls),
+            "output_cap_attempt_conformance": operational["conformance"][
+                "output_cap_by_attempt"
+            ],
             "calls_exceeding_requested_output_cap": (
                 output_cap_violations
             ),
@@ -955,12 +1482,26 @@ def _write_summary(
             "provider_error_distribution": dict(
                 provider_error_distribution
             ),
+            "deadline_conformance": operational["conformance"][
+                "deadline"
+            ],
+            "budget_conformance": operational["conformance"]["budget"],
+            "operational_output_cap_conformance": operational[
+                "conformance"
+            ]["output_cap"],
+            "operational_goodput": operational[
+                "operational_goodput"
+            ],
+            "score_weighted_goodput": operational[
+                "score_weighted_goodput"
+            ],
         },
+        "operations": operational,
         "relevance": {
             "separately_scored": False,
             "objective_task_score_proxy": (
-                sum(current_scores) / current_scored_count
-                if current_scored_count
+                quality_points / score_denominator
+                if score_denominator
                 else None
             ),
             "explanation": (
@@ -987,6 +1528,7 @@ def _write_summary(
             "judgments": "judgments.jsonl",
             "standard_score_files": copied_scores,
             "operational_metrics": "metrics.csv",
+            "integrity_manifest": "artifact_hashes.json",
         },
     }
     (run_dir / "summary.json").write_text(
@@ -1004,6 +1546,16 @@ def _write_report(run_dir: Path, summary: Mapping[str, Any]) -> None:
     latency_metrics = summary["latency"]
     reliability = summary["reliability"]
     snapshot = summary["workspace_snapshot"]
+    completeness = summary.get("completeness") or {}
+    operations = summary.get("operations") or {}
+    cap_conformance = reliability.get(
+        "operational_output_cap_conformance", {}
+    )
+    cap_attempt_conformance = (
+        (operations.get("conformance") or {}).get(
+            "output_cap_by_attempt", {}
+        )
+    )
 
     def percent(value: Any) -> str:
         return f"{float(value) * 100:.2f}%" if value is not None else "n/a"
@@ -1011,24 +1563,59 @@ def _write_report(run_dir: Path, summary: Mapping[str, Any]) -> None:
     def number(value: Any, digits: int = 3) -> str:
         return f"{float(value):.{digits}f}" if value is not None else "n/a"
 
+    def bounded_number(
+        value: Any, bound: str, digits: int = 3
+    ) -> str:
+        return f"{bound}{number(value, digits)}" if value is not None else "n/a"
+
     provider = str(api.get("provider") or "kendr")
     credits = api["kendr_credits"] or "n/a"
+    tokens_are_lower_bound = bool(api.get("token_total_is_lower_bound"))
+    cost_is_lower_bound = bool(api.get("cost_total_is_lower_bound"))
+    token_bound = "≥" if tokens_are_lower_bound else ""
+    cost_bound = "≥" if cost_is_lower_bound else ""
     cost = (
-        f"${Decimal(api['cost_usd']):f}"
+        f"{cost_bound}${Decimal(api['cost_usd']):f}"
         if api.get("cost_usd") is not None
         else "n/a"
     )
     latency = (
-        f"{api['mean_latency_ms']:.1f} ms"
-        if api["mean_latency_ms"] is not None
+        f"{api['mean_final_answer_latency_ms']:.1f} ms"
+        if api.get("mean_final_answer_latency_ms") is not None
         else "n/a"
     )
-    cap_status = (
-        "WARNING: provider output exceeded the requested "
-        f"{api['requested_max_output_tokens']}-token cap; maximum observed was "
-        f"{api['maximum_output_tokens_observed']}."
-        if api["calls_exceeding_requested_output_cap"]
-        else "No provider-reported output exceeded the requested token cap."
+    unknown_cap_attempts = int(cap_attempt_conformance.get("unknown") or 0)
+    unknown_cap_questions = int(cap_conformance.get("unknown") or 0)
+    if api["calls_exceeding_requested_output_cap"]:
+        cap_status = (
+            "WARNING: provider output exceeded the requested "
+            f"{api['requested_max_output_tokens']}-token cap; maximum "
+            f"observed was {api['maximum_output_tokens_observed']}."
+        )
+    elif unknown_cap_attempts:
+        cap_status = (
+            "WARNING: no measured output exceeded the requested token cap, "
+            f"but {unknown_cap_attempts} attempt(s) lacked usage telemetry; "
+            f"{unknown_cap_questions} planned question(s) therefore have "
+            "unknown cap conformance."
+        )
+    else:
+        cap_status = (
+            "Every captured attempt had enough usage telemetry to verify the "
+            "requested token cap, and none exceeded it."
+        )
+    tokens_per_quality = bounded_number(
+        efficiency["total_tokens_per_quality_point"], token_bound
+    )
+    quality_per_tokens = bounded_number(
+        efficiency["quality_points_per_1000_tokens"],
+        "≤" if tokens_are_lower_bound else "",
+    )
+    credits_per_quality = bounded_number(
+        efficiency["credits_per_quality_point"], cost_bound, 6
+    )
+    usd_per_quality = bounded_number(
+        efficiency["usd_per_quality_point"], cost_bound, 8
     )
     mean_score = (
         f"{snapshot['question_weighted_mean_score'] * 100:.2f}%"
@@ -1043,37 +1630,46 @@ def _write_report(run_dir: Path, summary: Mapping[str, Any]) -> None:
         f"- LiveBench release: `{summary['livebench']['release']}`",
         f"- LiveBench revision: `{summary['livebench']['revision']}`",
         f"- API calls in this run: {api['calls']}",
-        f"- Tokens in/out: {api['input_tokens']} / {api['output_tokens']}",
+        f"- Tokens in/out: {token_bound}{api['input_tokens']} / "
+        f"{token_bound}{api['output_tokens']}",
+        f"- Usage telemetry reported/missing: "
+        f"{api.get('usage_records_reported', 'n/a')} / "
+        f"{api.get('usage_records_missing', 'n/a')}; totals are "
+        f"{'captured lower bounds' if tokens_are_lower_bound else 'complete'}",
         f"- Kendr credits in this run: {credits}",
         f"- Cost in this run: {cost}",
-        f"- Mean API latency: {latency}",
+        f"- Cost telemetry reported/missing: "
+        f"{api.get('cost_records_reported', 'n/a')} / "
+        f"{api.get('cost_records_missing', 'n/a')}; total is "
+        f"{'a captured lower bound' if cost_is_lower_bound else 'complete'}",
+        f"- Mean cumulative final-answer latency: {latency}",
         f"- Calls exceeding requested output cap: "
         f"{api['calls_exceeding_requested_output_cap']}",
         f"- Output-cap status: {cap_status}",
         "",
         "## Current-run quality",
         "",
-        f"- Questions matched/scored: "
+        f"- Questions planned/matched/judged: "
+        f"{quality.get('questions_planned', 'legacy')} / "
         f"{quality['questions_matched_to_current_calls']} / "
         f"{quality['questions_scored']}",
+        f"- Completeness contract/status: "
+        f"`{completeness.get('contract', 'legacy')}` / "
+        f"{completeness.get('complete')}",
         f"- Objective score mean: "
         f"{percent(quality['objective_score_mean'])}",
         f"- Perfect-score rate: {percent(quality['perfect_score_rate'])}",
         f"- Nonzero-score rate: {percent(quality['nonzero_score_rate'])}",
         "",
-        "These are official LiveBench objective scores matched to the request "
-        "IDs from this invocation.",
+        "Under a planned-question contract, missing answers or judgments stay "
+        "in the denominator as zero. Legacy exports remain observed-only.",
         "",
         "## Efficiency",
         "",
-        f"- Total tokens per quality point: "
-        f"{number(efficiency['total_tokens_per_quality_point'])}",
-        f"- Quality points per 1,000 tokens: "
-        f"{number(efficiency['quality_points_per_1000_tokens'])}",
-        f"- Credits per quality point: "
-        f"{number(efficiency['credits_per_quality_point'], 6)}",
-        f"- USD per quality point: "
-        f"{number(efficiency['usd_per_quality_point'], 8)}",
+        f"- Total tokens per quality point: {tokens_per_quality}",
+        f"- Quality points per 1,000 tokens: {quality_per_tokens}",
+        f"- Credits per quality point: {credits_per_quality}",
+        f"- USD per quality point: {usd_per_quality}",
         f"- Output/input token ratio: "
         f"{number(efficiency['output_to_input_token_ratio'])}",
         f"- Output throughput: "
@@ -1083,17 +1679,35 @@ def _write_report(run_dir: Path, summary: Mapping[str, Any]) -> None:
         "",
         "## Latency and reliability",
         "",
-        f"- End-to-end latency p50/p95/p99: "
+        f"- Cumulative final-answer latency p50/p95/p99: "
         f"{number(latency_metrics['end_to_end_ms']['p50'], 1)} / "
         f"{number(latency_metrics['end_to_end_ms']['p95'], 1)} / "
         f"{number(latency_metrics['end_to_end_ms']['p99'], 1)} ms",
+        f"- Attempt latency p50/p95: "
+        f"{number(latency_metrics.get('attempt_ms', {}).get('p50'), 1)} / "
+        f"{number(latency_metrics.get('attempt_ms', {}).get('p95'), 1)} ms",
+        f"- Observed attempt amplification: "
+        f"{number((operations.get('retries') or {}).get('observed_attempt_amplification'), 3)}x",
+        f"- Retry latency amplification: "
+        f"{number((operations.get('retries') or {}).get('latency_amplification'), 3)}x",
         f"- Mean router latency: "
         f"{number(latency_metrics['router_ms']['mean'], 1)} ms",
         f"- Answer success rate: "
         f"{percent(reliability['answer_success_rate'])}",
         f"- Scoring coverage: {percent(reliability['scoring_coverage'])}",
-        f"- Output-cap compliance: "
-        f"{percent(reliability['output_cap_compliance_rate'])}",
+        f"- Output-cap compliance (conservative question-level): "
+        f"{percent(cap_conformance.get('conservative_rate'))}",
+        f"- Output-cap compliance (measured question-level): "
+        f"{percent(cap_conformance.get('measured_rate'))}; "
+        f"unknown questions: {unknown_cap_questions}",
+        f"- Deadline conformance (conservative): "
+        f"{percent((reliability.get('deadline_conformance') or {}).get('conservative_rate'))}",
+        f"- Per-answer budget conformance (conservative): "
+        f"{percent((reliability.get('budget_conformance') or {}).get('conservative_rate'))}",
+        f"- Operational goodput (conservative): "
+        f"{percent((reliability.get('operational_goodput') or {}).get('conservative_rate'))}",
+        f"- Score-weighted goodput (conservative): "
+        f"{percent((reliability.get('score_weighted_goodput') or {}).get('conservative_mean'))}",
         f"- Selected-route distribution: "
         f"`{json.dumps(reliability['route_distribution'], sort_keys=True)}`",
         "",
@@ -1138,7 +1752,9 @@ def run_livebench(args: argparse.Namespace) -> tuple[Path, dict[str, Any]]:
     root = args.livebench_root.resolve()
     valid, detail = _validate_checkout(root)
     if not valid:
-        raise RuntimeError(f"{detail}. Run `kendr-livebench setup` first.")
+        raise RuntimeError(
+            f"{detail}. Run `llm-benchmark-livebench setup` first."
+        )
 
     load_environment(args.env_file, disabled=args.no_env_file)
     provider = getattr(args, "provider", "kendr")
@@ -1166,6 +1782,46 @@ def run_livebench(args: argparse.Namespace) -> tuple[Path, dict[str, Any]]:
             "A full six-category LiveBench run is chargeable and requires "
             "--confirm-full. Run the documented one-question smoke first."
         )
+
+    supplied_plan = getattr(args, "planned_questions", None)
+    if supplied_plan is None:
+        source_records = load_livebench_question_records(
+            args.bench_name, args.livebench_release_option
+        )
+        planned_records = _planned_question_records(
+            source_records,
+            question_ids=args.question_id,
+            question_begin=args.question_begin,
+            question_end=args.question_end,
+        )
+    else:
+        planned_records = [dict(record) for record in supplied_plan]
+        if not planned_records:
+            raise RuntimeError("The supplied benchmark plan is empty.")
+    planned_questions = _planned_question_descriptors(planned_records)
+    planned_question_ids = [
+        record["question_id"] for record in planned_questions
+    ]
+    if len(planned_question_ids) != len(set(planned_question_ids)):
+        raise RuntimeError("The benchmark plan contains duplicate question IDs.")
+    sampling_provenance = getattr(args, "sampling_provenance", None)
+    if sampling_provenance:
+        sampled_ids = [
+            str(question_id)
+            for question_id in sampling_provenance.get("selected_ids", [])
+        ]
+        if sampled_ids != planned_question_ids:
+            raise RuntimeError(
+                "The supplied planned questions do not match the frozen "
+                "sampling provenance selected IDs."
+            )
+    # Always hand LiveBench exact IDs. Its positional slice is tied to mutable
+    # dataset order and therefore cannot be an auditable experiment contract.
+    args.question_id = planned_question_ids
+    args.question_begin = None
+    args.question_end = None
+    args.planned_questions = planned_questions
+    args.planned_question_ids = planned_question_ids
 
     usd_per_credit = args.kendr_usd_per_credit
     if usd_per_credit is None and os.getenv("KENDR_USD_PER_CREDIT"):
@@ -1220,7 +1876,27 @@ def run_livebench(args: argparse.Namespace) -> tuple[Path, dict[str, Any]]:
         "pricing_catalog": str(pricing_path),
         "max_tokens": args.max_tokens,
         "parallel_requests": args.parallel_requests,
+        "deadline_ms": getattr(args, "deadline_ms", None),
+        "max_cost_usd_per_answer": (
+            format(args.max_cost_usd_per_answer, "f")
+            if getattr(args, "max_cost_usd_per_answer", None) is not None
+            else None
+        ),
         "usd_per_credit": format(usd_per_credit, "f"),
+        "planned_questions": planned_questions,
+        "planned_question_ids": planned_question_ids,
+        "planned_question_count": len(planned_question_ids),
+        "planned_question_descriptor_sha256": _json_sha256(
+            planned_questions
+        ),
+        "planned_question_content_sha256": _json_sha256(planned_records),
+        "planned_question_content_hash_scope": "selected-full-records",
+        "sampling": sampling_provenance,
+        "completeness_policy": (
+            "allow-incomplete"
+            if getattr(args, "allow_incomplete", False)
+            else "strict"
+        ),
         "runtime": {
             "python": sys.version,
             "packages": _package_versions(),
@@ -1228,6 +1904,7 @@ def run_livebench(args: argparse.Namespace) -> tuple[Path, dict[str, Any]]:
         "compatibility_patches": [
             "multi-word-category-path-runtime-shim-v1",
             INSTRUCTION_FOLLOWING_COMPATIBILITY_PATCH,
+            KENDR_OUTPUT_CAP_COMPATIBILITY_PATCH,
         ],
     }
     (run_dir / "manifest.json").write_text(
@@ -1282,6 +1959,19 @@ def run_livebench(args: argparse.Namespace) -> tuple[Path, dict[str, Any]]:
         copied_scores=copied_scores,
     )
     _write_report(run_dir, summary)
+    _write_artifact_hashes(run_dir)
+    completeness = summary.get("completeness") or {}
+    if (
+        not getattr(args, "allow_incomplete", False)
+        and completeness.get("complete") is False
+    ):
+        raise RuntimeError(
+            "Run did not satisfy its planned-question contract; artifacts "
+            f"were preserved at {run_dir}. Missing answers: "
+            f"{len(completeness.get('missing_answer_ids') or [])}; missing "
+            "judgments: "
+            f"{len(completeness.get('missing_judgment_ids') or [])}."
+        )
     return run_dir, summary
 
 
@@ -1309,6 +1999,17 @@ def summarize_existing_run(
         raise RuntimeError(
             f"Manifest is missing required fields: {', '.join(missing)}"
         )
+    planned_questions = manifest.get("planned_questions")
+    expected_plan_hash = manifest.get(
+        "planned_question_descriptor_sha256"
+    )
+    if planned_questions and expected_plan_hash:
+        actual_plan_hash = _json_sha256(planned_questions)
+        if actual_plan_hash != expected_plan_hash:
+            raise RuntimeError(
+                "Planned-question descriptors no longer match their manifest "
+                "SHA-256; refusing to rebuild a mutated experiment."
+            )
     conversion = usd_per_credit
     if conversion is None:
         conversion = Decimal(
@@ -1324,6 +2025,16 @@ def summarize_existing_run(
         livebench_release_option=manifest["livebench_release"],
         bench_name=list(manifest["benchmarks"]),
         max_tokens=int(manifest["max_tokens"]),
+        deadline_ms=manifest.get("deadline_ms"),
+        max_cost_usd_per_answer=manifest.get(
+            "max_cost_usd_per_answer"
+        ),
+        planned_questions=manifest.get("planned_questions"),
+        planned_question_ids=manifest.get("planned_question_ids"),
+        sampling_provenance=manifest.get("sampling"),
+        allow_incomplete=(
+            manifest.get("completeness_policy") == "allow-incomplete"
+        ),
     )
     calls = _read_calls(run_dir / "calls.jsonl")
     answers = _read_jsonl([run_dir / "answers.jsonl"])
@@ -1343,6 +2054,218 @@ def summarize_existing_run(
         copied_scores=copied_scores,
     )
     _write_report(run_dir, summary)
+    _write_artifact_hashes(run_dir)
+    return summary
+
+
+def _normalize_missing_failed_judgments(
+    *,
+    judgments: list[dict[str, Any]],
+    answers: list[dict[str, Any]],
+    planned_questions: list[dict[str, Any]],
+    planned_ids: list[str],
+    model_display_name: str,
+) -> list[str]:
+    """Add explicit zero judgments only for provider-failed answers.
+
+    Some pinned LiveBench objective graders do not emit a row when the model
+    answer is ``$ERROR$``.  The matrix contract already assigns such outcomes
+    zero.  Materializing that zero keeps the immutable denominator complete
+    without inventing a score for a successful but ungraded answer.
+    """
+    present = {str(item.get("question_id") or "") for item in judgments}
+    missing = [question_id for question_id in planned_ids if question_id not in present]
+    if not missing:
+        return []
+    failed_ids = failed_question_ids(answers)
+    unsafe = sorted(set(missing) - failed_ids)
+    if unsafe:
+        raise RuntimeError(
+            "Official grading omitted successful answers; refusing to "
+            "synthesize judgments for: " + ", ".join(unsafe)
+        )
+    plan_by_id = {
+        str(item.get("question_id") or ""): item
+        for item in planned_questions
+    }
+    answer_by_id = {
+        str(item.get("question_id") or ""): item for item in answers
+    }
+    timestamp = datetime.now(timezone.utc).timestamp()
+    for question_id in missing:
+        plan = plan_by_id.get(question_id, {})
+        answer = answer_by_id[question_id]
+        judgments.append(
+            {
+                "_source_file": "protocol://failure-normalization-v1",
+                "answer_id": answer.get("answer_id"),
+                "category": plan.get("category"),
+                "model": model_display_name,
+                "normalization": (
+                    "official grader emitted no row for provider-failed "
+                    "$ERROR$ answer; zero required by frozen matrix policy"
+                ),
+                "question_id": question_id,
+                "score": 0.0,
+                "task": plan.get("task"),
+                "tstamp": timestamp,
+            }
+        )
+    return missing
+
+
+def finalize_interrupted_run(
+    run_dir: Path,
+    *,
+    livebench_root: Path,
+    parallel_grading: int = 4,
+    usd_per_credit: Decimal | None = None,
+) -> dict[str, Any]:
+    """Finish grading a captured first trial without replaying inference.
+
+    LiveBench writes model answers to its workspace before the harness copies
+    them into the run directory.  If orchestration is interrupted after all
+    provider calls finish, silently preferring a later clean rerun creates
+    survivorship bias.  This recovery path accepts only workspace answers that
+    link back to every captured call and planned question in the original run.
+    """
+    root = livebench_root.resolve()
+    valid, detail = _validate_checkout(root)
+    if not valid:
+        raise RuntimeError(
+            f"{detail}. Run `llm-benchmark-livebench setup` first."
+        )
+
+    run_dir = run_dir.resolve()
+    manifest_path = run_dir / "manifest.json"
+    if not manifest_path.is_file():
+        raise RuntimeError(f"Manifest not found: {manifest_path}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("livebench_revision") != LIVEBENCH_REVISION:
+        raise RuntimeError(
+            "Interrupted run does not use the pinned LiveBench revision."
+        )
+    planned_questions = manifest.get("planned_questions") or []
+    planned_ids = [
+        str(question_id)
+        for question_id in (manifest.get("planned_question_ids") or [])
+    ]
+    if not planned_ids or len(planned_ids) != len(set(planned_ids)):
+        raise RuntimeError(
+            "Interrupted run lacks a unique frozen planned-question list."
+        )
+    expected_plan_hash = manifest.get(
+        "planned_question_descriptor_sha256"
+    )
+    if (
+        not expected_plan_hash
+        or _json_sha256(planned_questions) != expected_plan_hash
+    ):
+        raise RuntimeError(
+            "Planned-question descriptors do not match the run manifest."
+        )
+
+    calls = _read_calls(run_dir / "calls.jsonl")
+    if not calls:
+        raise RuntimeError(
+            "Interrupted run contains no captured provider calls."
+        )
+    run_id = str(manifest.get("run_id") or "")
+    if any(str(call.get("run_id") or "") != run_id for call in calls):
+        raise RuntimeError(
+            "Captured calls do not all belong to the interrupted run ID."
+        )
+
+    work_dir = root / "livebench"
+    model_display_name = str(manifest.get("model_display_name") or "")
+    answer_paths = _paths_for_benches(
+        work_dir,
+        manifest.get("benchmarks") or [],
+        f"model_answer/{model_display_name}.jsonl",
+    )
+    answers = _read_jsonl(answer_paths)
+    answer_ids = [str(answer.get("question_id") or "") for answer in answers]
+    if len(answers) != len(planned_ids) or set(answer_ids) != set(planned_ids):
+        raise RuntimeError(
+            "Workspace answers do not exactly match the interrupted run's "
+            "frozen question plan."
+        )
+    linked_ids = _current_run_question_ids(calls, answers)
+    if linked_ids != set(planned_ids):
+        missing = sorted(set(planned_ids) - linked_ids)
+        raise RuntimeError(
+            "Workspace answers are not fully linked to the captured provider "
+            f"calls; missing question IDs: {', '.join(missing)}"
+        )
+
+    args = argparse.Namespace(
+        provider=manifest.get("provider", "kendr"),
+        model=manifest["requested_model"],
+        model_display_name=model_display_name,
+        livebench_release_option=manifest["livebench_release"],
+        bench_name=list(manifest["benchmarks"]),
+        question_id=planned_ids,
+        question_begin=None,
+        question_end=None,
+        parallel_grading=parallel_grading,
+        resume=False,
+        ignore_missing_answers=True,
+        compare_model=[],
+    )
+    child_env = os.environ.copy()
+    child_env["PYTHONUTF8"] = "1"
+    child_env["PYTHONIOENCODING"] = "utf-8"
+    child_env["PYTHONPATH"] = os.pathsep.join(
+        filter(None, [str(root), child_env.get("PYTHONPATH", "")])
+    )
+    _run_command(
+        _grading_command(args, root), cwd=work_dir, env=child_env
+    )
+    _run_command(_show_command(args, root), cwd=work_dir, env=child_env)
+
+    judgment_paths = _paths_for_benches(
+        work_dir,
+        args.bench_name,
+        "model_judgment/ground_truth_judgment.jsonl",
+    )
+    judgments = _model_judgments(
+        _read_jsonl(judgment_paths), model_display_name
+    )
+    normalized_missing_ids = _normalize_missing_failed_judgments(
+        judgments=judgments,
+        answers=answers,
+        planned_questions=planned_questions,
+        planned_ids=planned_ids,
+        model_display_name=model_display_name,
+    )
+    _write_jsonl(run_dir / "answers.jsonl", answers)
+    _write_jsonl(run_dir / "judgments.jsonl", judgments)
+    _copy_score_files(work_dir, run_dir)
+
+    manifest["finalization"] = {
+        "mode": "salvaged-interrupted-first-trial",
+        "finalized_at": datetime.now(timezone.utc).isoformat(),
+        "provider_inference_replayed": False,
+        "captured_calls": len(calls),
+        "linked_planned_questions": len(linked_ids),
+        "workspace_answers_verified_against_calls": True,
+        "failure_normalized_missing_judgment_ids": normalized_missing_ids,
+    }
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    summary = summarize_existing_run(
+        run_dir,
+        livebench_root=root,
+        usd_per_credit=usd_per_credit,
+    )
+    completeness = summary.get("completeness") or {}
+    if completeness.get("complete") is not True:
+        raise RuntimeError(
+            "Recovered run did not satisfy the strict planned-question "
+            "contract; artifacts were preserved for diagnosis."
+        )
     return summary
 
 
@@ -1371,6 +2294,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "current-run questions scored)"
             )
             return 0
+        if args.command == "finalize":
+            summary = finalize_interrupted_run(
+                args.run_dir,
+                livebench_root=args.livebench_root,
+                parallel_grading=args.parallel_grading,
+                usd_per_credit=args.kendr_usd_per_credit,
+            )
+            print(
+                "Finalized without replaying inference: "
+                f"{args.run_dir.resolve()} "
+                f"({summary['current_run_quality']['questions_scored']} "
+                "questions scored)"
+            )
+            return 0
         if args.command == "run":
             run_dir, summary = run_livebench(args)
             current = summary["current_api_run"]
@@ -1392,7 +2329,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"Report: {run_dir / 'report.md'}")
             return 1 if snapshot["failed_answers"] else 0
     except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
-        print(f"kendr-livebench failed: {exc}", file=sys.stderr)
+        print(f"llm-benchmark-livebench failed: {exc}", file=sys.stderr)
         return 1
     return 2
 

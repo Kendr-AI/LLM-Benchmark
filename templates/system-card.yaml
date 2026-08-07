@@ -1,0 +1,78 @@
+# LLM Benchmark Protocol 1.0 system card authoring template.
+# Replace every REPLACE-ME value. Use JSON null for genuinely unknown values;
+# never invent a value to make the card look complete. Convert to JSON and
+# validate against config/system-card-v1.schema.json before freezing.
+
+schema_version: "1.0"
+system_id: "REPLACE-ME-stable-system-id"
+display_name: "REPLACE-ME human-readable name"
+provider: "REPLACE-ME serving provider"
+owner: "REPLACE-ME model/system owner"
+
+# Allowed: base-model, instruction-model, reasoning-model, specialist-model,
+# multimodal-model, embedding-model, reranker, endpoint, router, ensemble,
+# agent, application.
+system_type: "endpoint"
+
+# Allowed: model, endpoint, routed-system, agentic-system, application.
+deployment_scope: "endpoint"
+
+# Allowed: first-party-api, third-party-api, managed, open-weights, local,
+# hybrid.
+access_mode: "third-party-api"
+
+version: "REPLACE-ME version or capture-date identifier"
+model_snapshot: null
+endpoint: "REPLACE-ME endpoint/base URL without credentials"
+regions:
+  - "REPLACE-ME-region"
+
+input_modalities:
+  - "text"
+output_modalities:
+  - "text"
+declared_capabilities:
+  - "REPLACE-ME-capability"
+
+# Use null only when the provider does not disclose the limit.
+context_limit: null
+output_limit: null
+
+# The schema permits provider-specific keys inside these objects. Preserve the
+# effective settings and their source; do not include secrets.
+elicitation:
+  regime: "controlled"
+  prompt_template_sha256: "REPLACE-ME-64-lowercase-hex"
+  settings_source: "REPLACE-ME URI or dated provider document"
+  temperature: null
+  top_p: null
+  reasoning_effort: null
+  seed: null
+  response_format: "text"
+  streaming: false
+  provider_retention: "REPLACE-ME"
+
+tools: []
+safeguards: []
+tokenizer: null
+
+pricing:
+  basis: "REPLACE-ME invoice|provider-reported|catalog-estimate|list-price|unknown"
+  currency: "REPLACE-ME"
+  source: "REPLACE-ME URI or artifact hash"
+  captured_at: "REPLACE-ME ISO-8601 timestamp"
+  cached_input_included: null
+  reasoning_tokens_included: null
+  failed_attempt_cost_included: null
+  routing_or_tool_fees_included: null
+
+license:
+  name_or_terms: "REPLACE-ME"
+  source: "REPLACE-ME URI or controlled evidence reference"
+  redistribution_reviewed: false
+  reviewer_role: "REPLACE-ME"
+
+# Required for a router; leave empty only for a non-router.
+routing_candidate_set: []
+
+captured_at: "REPLACE-ME ISO-8601 timestamp"

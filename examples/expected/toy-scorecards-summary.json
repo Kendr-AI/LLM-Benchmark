@@ -1,0 +1,103 @@
+{
+  "fixture_version": "1.0",
+  "coverage": {
+    "mode": "frozen-schedule",
+    "expected_observations": 6,
+    "observed_observations": 5,
+    "synthesized_missing_observations": 1,
+    "complete_denominator_enforced": true
+  },
+  "systems": [
+    {
+      "system_id": "alpha",
+      "macro_track_score": 0.9333333333333332,
+      "status_counts": {
+        "invalid": 0,
+        "missing": 0,
+        "policy_block": 1,
+        "provider_failure": 0,
+        "success": 2,
+        "timeout": 0
+      },
+      "tracks": [
+        {
+          "track": "coding",
+          "estimate": 0.8,
+          "low": 0.8,
+          "high": 0.8
+        },
+        {
+          "track": "reasoning",
+          "estimate": 1.0,
+          "low": 1.0,
+          "high": 1.0
+        },
+        {
+          "track": "safety",
+          "estimate": 1.0,
+          "low": 1.0,
+          "high": 1.0
+        }
+      ]
+    },
+    {
+      "system_id": "beta",
+      "macro_track_score": 0.2333333333333333,
+      "status_counts": {
+        "invalid": 0,
+        "missing": 1,
+        "policy_block": 0,
+        "provider_failure": 0,
+        "success": 2,
+        "timeout": 0
+      },
+      "tracks": [
+        {
+          "track": "coding",
+          "estimate": 0.0,
+          "low": 0.0,
+          "high": 0.0
+        },
+        {
+          "track": "reasoning",
+          "estimate": 0.5,
+          "low": 0.5,
+          "high": 0.5
+        },
+        {
+          "track": "safety",
+          "estimate": 0.2,
+          "low": 0.2,
+          "high": 0.2
+        }
+      ]
+    }
+  ],
+  "comparisons": [
+    {
+      "left_system": "alpha",
+      "right_system": "beta",
+      "effect_direction": "left_minus_right",
+      "tracks": [
+        {
+          "track": "coding",
+          "estimate": 0.8,
+          "low": 0.8,
+          "high": 0.8
+        },
+        {
+          "track": "reasoning",
+          "estimate": 0.5,
+          "low": 0.5,
+          "high": 0.5
+        },
+        {
+          "track": "safety",
+          "estimate": 0.8,
+          "low": 0.8,
+          "high": 0.8
+        }
+      ]
+    }
+  ]
+}

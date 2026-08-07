@@ -3,17 +3,44 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [project]
-name = "kendr-bench"
-version = "0.1.0"
-description = "Reproducible cost and token benchmarking for OpenAI and Kendr"
+name = "llm-benchmark-protocol"
+version = "1.0.0"
+description = "A claim-first, system-aware protocol and reference harness for reproducible LLM evaluation"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = { file = "LICENSE" }
 authors = [{ name = "Kendr AI" }]
+keywords = [
+  "ai-evaluation",
+  "benchmarking",
+  "large-language-models",
+  "llm",
+  "measurement",
+  "reproducibility",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
+  "jsonschema>=4.23",
   "openai>=1.109.0",
   "python-dotenv>=1.0.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Kendr-AI/LLM-Benchmark"
+Documentation = "https://github.com/Kendr-AI/LLM-Benchmark#readme"
+Issues = "https://github.com/Kendr-AI/LLM-Benchmark/issues"
+Source = "https://github.com/Kendr-AI/LLM-Benchmark"
 
 [project.optional-dependencies]
 # Kendr is intentionally installed from its pinned Git source revision.
@@ -21,17 +48,76 @@ kendr = [
   "kendr @ git+https://github.com/Kendr-AI/Kendr.git@2a07a08b266f43593d10843ddf213c3ab7b801c5",
 ]
 dev = [
+  "build>=1.2",
   "pytest>=8.3",
   "pytest-cov>=5.0",
 ]
+docs = [
+  "reportlab>=4.4",
+  "pypdf>=6.0",
+]
 
 [project.scripts]
+# Public command names introduced in 1.0.0.
+llm-benchmark = "kendr_bench.cli:main"
+llm-benchmark-livebench = "kendr_bench.livebench_cli:main"
+llm-benchmark-matrix = "kendr_bench.matrix_cli:main"
+llm-benchmark-protocol = "kendr_bench.protocol_cli:main"
+
+# Backward-compatible aliases retained for existing automation.
 kendr-bench = "kendr_bench.cli:main"
 kendr-livebench = "kendr_bench.livebench_cli:main"
 kendr-benchmark-matrix = "kendr_bench.matrix_cli:main"
+kendr-protocol = "kendr_bench.protocol_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/kendr_bench"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"config/global-protocol-v1.schema.json" = "kendr_bench/schemas/global-protocol-v1.schema.json"
+"config/global-observation-v1.schema.json" = "kendr_bench/schemas/global-observation-v1.schema.json"
+"config/system-card-v1.schema.json" = "kendr_bench/schemas/system-card-v1.schema.json"
+"config/frozen-item-v1.schema.json" = "kendr_bench/schemas/frozen-item-v1.schema.json"
+"config/schedule-cell-v1.schema.json" = "kendr_bench/schemas/schedule-cell-v1.schema.json"
+"config/attempt-v1.schema.json" = "kendr_bench/schemas/attempt-v1.schema.json"
+"config/answer-v1.schema.json" = "kendr_bench/schemas/answer-v1.schema.json"
+"config/judgment-v1.schema.json" = "kendr_bench/schemas/judgment-v1.schema.json"
+"config/scorecard-v1.schema.json" = "kendr_bench/schemas/scorecard-v1.schema.json"
+"config/evidence-manifest-v1.schema.json" = "kendr_bench/schemas/evidence-manifest-v1.schema.json"
+"config/global-protocol-v1.example.json" = "kendr_bench/resources/global-protocol-v1.example.json"
+"config/pricing.json" = "kendr_bench/resources/pricing.json"
+"config/livebench-constraints.txt" = "kendr_bench/resources/livebench-constraints.txt"
+"benchmarks/cases.jsonl" = "kendr_bench/resources/cases.jsonl"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/.env.example",
+  "/.github",
+  "/benchmarks",
+  "/config",
+  "/docs",
+  "/examples",
+  "/output/pdf/LLM_Benchmark_Protocol_1_0_White_Paper.pdf",
+  "/scripts",
+  "/src",
+  "/templates",
+  "/tests",
+  "/*.md",
+  "/CITATION.cff",
+  "/LICENSE",
+  "/pyproject.toml",
+]
+exclude = [
+  "/.claude",
+  "/.vendor",
+  "/.venv",
+  "/build",
+  "/dist",
+  "/results",
+  "/tmp",
+  "/output/pdf/*.resolved.md",
+  "/output/pdf/KGBP*",
+]
 
 [tool.hatch.metadata]
 allow-direct-references = true

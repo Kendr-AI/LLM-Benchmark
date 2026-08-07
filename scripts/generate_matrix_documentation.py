@@ -5,9 +5,14 @@ import csv
 import json
 import sys
 from collections import Counter
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
+from kendr_bench.livebench_adapter import (
+    KENDR_OUTPUT_CAP_COMPATIBILITY_PATCH,
+)
+from kendr_bench.livebench_cli import _write_artifact_hashes
 from kendr_bench.scoring import (
     answer_failed,
     bootstrap_ci,
@@ -25,7 +30,7 @@ MODEL_RESEARCH = {
     "kendr-intelligent": {
         "architecture": "Routing system; base-model parameter count is not applicable",
         "context": "1,000,000 tokens in the captured Kendr catalog",
-        "max_output": "Route-dependent; client requested 2,048",
+        "max_output": "Route-dependent; client cap recorded in the matrix manifest",
         "knowledge": "Route-dependent",
         "modes": "Text, vision, tools, structured output, reasoning, web search",
         "pricing": "Dynamic, based on the selected route",
@@ -144,7 +149,7 @@ def number(value: Any, digits: int = 2) -> str:
 def money(value: Any) -> str:
     if value in (None, ""):
         return "n/a"
-    amount = float(value)
+    amount = Decimal(str(value))
     return f"${amount:.6f}" if amount < 1 else f"${amount:,.2f}"
 
 
@@ -193,8 +198,13 @@ def interval_text(interval: dict[str, Any]) -> str:
 
 
 def get_answer_call(answer: dict[str, Any]) -> dict[str, Any]:
-    calls = answer.get("api_info", {}).get("benchmark_calls", [])
+    calls = get_answer_calls(answer)
     return calls[-1] if calls else {}
+
+
+def get_answer_calls(answer: dict[str, Any]) -> list[dict[str, Any]]:
+    calls = answer.get("api_info", {}).get("benchmark_calls", [])
+    return [call for call in calls if isinstance(call, dict)]
 
 
 def call_error(call: dict[str, Any]) -> str:
@@ -258,31 +268,90 @@ def call_usage(call: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def call_cost_usd(call: dict[str, Any]) -> tuple[Decimal, bool]:
+    """Return captured cost and whether it is known for this attempt."""
+    if str(call.get("retry_reason") or "").lower() == "no_credits_charged":
+        return Decimal(0), True
+    for value in (call.get("cost_usd"), call.get("kendr_cost_usd")):
+        if value is None:
+            continue
+        try:
+            parsed = Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError):
+            return Decimal(0), False
+        if parsed.is_finite() and parsed >= 0:
+            return parsed, True
+        return Decimal(0), False
+    return Decimal(0), False
+
+
+def call_kendr_credits(call: dict[str, Any]) -> tuple[Decimal, bool]:
+    """Return billed Kendr credits, recognizing explicit no-charge failures."""
+    if str(call.get("retry_reason") or "").lower() == "no_credits_charged":
+        return Decimal(0), True
+    value = call.get("kendr_credits")
+    if value is None and isinstance(call.get("kendr_usage"), dict):
+        value = call["kendr_usage"].get("credits_charged")
+    if value is None:
+        return Decimal(0), False
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return Decimal(0), False
+    return (parsed, True) if parsed.is_finite() and parsed >= 0 else (Decimal(0), False)
+
+
 def find_runs(
     root: Path, manifest: dict[str, Any]
 ) -> dict[str, dict[str, Any]]:
-    by_requested: dict[str, tuple[Path, dict[str, Any]]] = {}
-    for run_dir in (root / "runs").iterdir():
+    runs_root = (root / "runs").resolve()
+    canonical_path = root / "leaderboard.json"
+    canonical = read_json(canonical_path) if canonical_path.is_file() else {}
+    canonical_by_key = {
+        str(row.get("panel_key")): row
+        for row in (canonical.get("results") or [])
+        if row.get("panel_key") and row.get("run_dir")
+    }
+    fallback_by_requested: dict[str, list[Path]] = {}
+    for run_dir in sorted(runs_root.iterdir()):
         summary_path = run_dir / "summary.json"
-        if summary_path.exists():
-            summary = read_json(summary_path)
-            by_requested[summary["requested_model"]] = (run_dir, summary)
-    result = {}
-    missing = [
-        spec["label"]
-        for spec in manifest["models"]
-        if spec["model"] not in by_requested
-    ]
-    if missing:
-        print(
-            "Skipping models with no run directory: "
-            + ", ".join(missing),
-            file=sys.stderr,
-        )
-    for spec in manifest["models"]:
-        if spec["model"] not in by_requested:
+        if not summary_path.is_file():
             continue
-        run_dir, summary = by_requested[spec["model"]]
+        summary = read_json(summary_path)
+        fallback_by_requested.setdefault(
+            str(summary["requested_model"]), []
+        ).append(run_dir)
+    result = {}
+    missing: list[str] = []
+    for spec in manifest["models"]:
+        canonical_row = canonical_by_key.get(str(spec["key"]))
+        if canonical_row is not None:
+            run_dir = Path(str(canonical_row["run_dir"])).resolve()
+            try:
+                run_dir.relative_to(runs_root)
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"Canonical run for {spec['label']} is outside the "
+                    "matrix runs directory."
+                ) from exc
+        else:
+            candidates = fallback_by_requested.get(str(spec["model"])) or []
+            attempted = [
+                candidate
+                for candidate in candidates
+                if (candidate / "calls.jsonl").is_file()
+                and (candidate / "calls.jsonl").stat().st_size > 0
+            ]
+            run_dir = (attempted or candidates or [None])[0]
+        if run_dir is None or not (run_dir / "summary.json").is_file():
+            missing.append(spec["label"])
+            continue
+        summary = read_json(run_dir / "summary.json")
+        if str(summary.get("requested_model")) != str(spec["model"]):
+            raise RuntimeError(
+                f"Selected run {run_dir.name} does not match "
+                f"{spec['label']} ({spec['model']})."
+            )
         result[spec["key"]] = {
             "spec": spec,
             "run_dir": run_dir,
@@ -291,6 +360,12 @@ def find_runs(
             "answers": read_jsonl(run_dir / "answers.jsonl"),
             "judgments": read_jsonl(run_dir / "judgments.jsonl"),
         }
+    if missing:
+        print(
+            "Skipping models with no run directory: "
+            + ", ".join(missing),
+            file=sys.stderr,
+        )
     return result
 
 
@@ -323,6 +398,9 @@ def build_metrics_rows(
         api = summary["current_api_run"]
         quality = summary["current_run_quality"]
         reliability = summary["reliability"]
+        cap_conformance = reliability.get(
+            "operational_output_cap_conformance", {}
+        )
         latency = summary["latency"]["end_to_end_ms"]
         raw_success = sum(not bool(call.get("error")) for call in calls)
         # Resample the same failure-normalized scores that produced
@@ -332,7 +410,31 @@ def build_metrics_rows(
         failed_ids = failed_question_ids(data["answers"])
         scores = normalized_scores(data["judgments"], failed_ids)
         interval = bootstrap_ci(scores, seed=stable_seed(key))
-        capabilities = category_scores(data["judgments"], failed_ids)
+        capabilities = quality.get("category_scores") or category_scores(
+            data["judgments"], failed_ids
+        )
+        operations = summary.get("operations") or {}
+        operational_scores = {
+            str(item["question_id"]): float(
+                item.get("score_weighted_goodput") or 0.0
+            )
+            for item in (operations.get("question_results") or [])
+            if item.get("question_id")
+        }
+        operational_interval = (
+            bootstrap_ci(
+                list(operational_scores.values()),
+                seed=stable_seed(f"{key}|operational-goodput"),
+            )
+            if operational_scores
+            else interval
+        )
+        retries = operations.get("retries") or {}
+        final_latency = summary["latency"]["end_to_end_ms"]
+        attempt_latency = summary["latency"].get("attempt_ms", {})
+        score_weighted_goodput = reliability.get(
+            "score_weighted_goodput", {}
+        ).get("conservative_mean")
         rows.append(
             {
                 "panel_key": key,
@@ -340,6 +442,7 @@ def build_metrics_rows(
                 "provider": spec["provider"],
                 "requested_model": spec["model"],
                 "questions": quality["questions_scored"],
+                "questions_planned": quality.get("score_denominator"),
                 "quality_score": quality["objective_score_mean"],
                 "quality_ci95_low": interval["low"],
                 "quality_ci95_high": interval["high"],
@@ -349,6 +452,17 @@ def build_metrics_rows(
                 ],
                 "tier": None,
                 "quality_points": quality["quality_points"],
+                "score_weighted_operational_goodput": (
+                    score_weighted_goodput
+                ),
+                "binary_operational_goodput": reliability.get(
+                    "operational_goodput", {}
+                ).get("conservative_rate"),
+                "ranking_ci95_low": operational_interval["low"],
+                "ranking_ci95_high": operational_interval["high"],
+                "ranking_ci95_degenerate": operational_interval[
+                    "degenerate"
+                ],
                 # Computed from normalized judgments, not LiveBench's raw
                 # group CSV, so this table cannot disagree with the overall
                 # quality column the way the two published tables used to.
@@ -371,18 +485,49 @@ def build_metrics_rows(
                 "input_tokens": api["input_tokens"],
                 "output_tokens": api["output_tokens"],
                 "total_tokens": api["total_tokens"],
+                "token_total_is_lower_bound": bool(
+                    api.get("token_total_is_lower_bound")
+                ),
                 "cost_usd": api["cost_usd"],
+                "cost_total_is_lower_bound": bool(
+                    api.get("cost_total_is_lower_bound")
+                ),
                 "kendr_credits": api.get("kendr_credits"),
-                "mean_latency_ms": latency["mean"],
-                "p50_latency_ms": latency["p50"],
-                "p95_latency_ms": latency["p95"],
-                "max_latency_ms": latency["maximum"],
-                "output_cap_compliance": reliability[
-                    "output_cap_compliance_rate"
-                ],
+                "mean_latency_ms": final_latency["mean"],
+                "p50_latency_ms": final_latency["p50"],
+                "p95_latency_ms": final_latency["p95"],
+                "max_latency_ms": final_latency["maximum"],
+                "attempt_p50_latency_ms": attempt_latency.get("p50"),
+                "attempt_p95_latency_ms": attempt_latency.get("p95"),
+                "retry_attempt_amplification": retries.get(
+                    "observed_attempt_amplification"
+                ),
+                "retry_latency_amplification": retries.get(
+                    "latency_amplification"
+                ),
+                "output_cap_compliance": cap_conformance.get(
+                    "conservative_rate",
+                    reliability["output_cap_compliance_rate"],
+                ),
+                "output_cap_measured_rate": cap_conformance.get(
+                    "measured_rate",
+                    reliability["output_cap_compliance_rate"],
+                ),
+                "output_cap_unknown_questions": cap_conformance.get(
+                    "unknown", 0
+                ),
                 "cap_violations": reliability[
                     "calls_exceeding_requested_output_cap"
                 ],
+                "deadline_conformance": reliability.get(
+                    "deadline_conformance", {}
+                ).get("conservative_rate"),
+                "budget_conformance": reliability.get(
+                    "budget_conformance", {}
+                ).get("conservative_rate"),
+                "complete": (summary.get("completeness") or {}).get(
+                    "complete"
+                ),
                 "max_output_tokens_observed": api[
                     "maximum_output_tokens_observed"
                 ],
@@ -413,15 +558,31 @@ def build_metrics_rows(
                     for judgment in data["judgments"]
                     if judgment.get("score") not in (None, -1)
                 },
+                "_ranking_question_scores": operational_scores,
             }
         )
 
-    def order_key(row: dict[str, Any]) -> tuple[float, float]:
+    def order_key(
+        row: dict[str, Any],
+    ) -> tuple[float, float, float, float]:
         quality = row.get("quality_score")
-        cost = row.get("cost_usd")
+        goodput = row.get("score_weighted_operational_goodput")
+        if goodput is None:
+            goodput = quality
+        cost = (
+            None
+            if row.get("cost_total_is_lower_bound")
+            else row.get("cost_usd")
+        )
         return (
+            -float(goodput) if goodput is not None else float("inf"),
             -float(quality) if quality is not None else float("inf"),
             float(cost) if cost is not None else float("inf"),
+            (
+                float(row["p50_latency_ms"])
+                if row.get("p50_latency_ms") is not None
+                else float("inf")
+            ),
         )
 
     # Same rule as the leaderboard writer. These two artifacts used to sort by
@@ -432,8 +593,8 @@ def build_metrics_rows(
             (
                 row["panel_key"],
                 {
-                    "low": row["quality_ci95_low"],
-                    "high": row["quality_ci95_high"],
+                    "low": row["ranking_ci95_low"],
+                    "high": row["ranking_ci95_high"],
                 },
             )
             for row in rows
@@ -450,16 +611,108 @@ def build_question_rows(
     rows = []
     for key, data in panel.items():
         judgments = {j["question_id"]: j for j in data["judgments"]}
+        operations_by_question = {
+            str(item["question_id"]): item
+            for item in (
+                (data["summary"].get("operations") or {}).get(
+                    "question_results"
+                )
+                or []
+            )
+            if item.get("question_id")
+        }
         for answer in data["answers"]:
             qid = answer["question_id"]
             # An answer with no judgment is exactly what a silently-dropped
             # provider failure looks like, so it is recorded rather than raising.
             judgment = judgments.get(qid, {})
-            call = get_answer_call(answer)
-            routing = call_routing(call)
-            usage = call_usage(call)
-            output_tokens = usage.get(
-                "completion_tokens", answer.get("total_output_tokens")
+            calls = get_answer_calls(answer)
+            final_call = calls[-1] if calls else {}
+            routing = call_routing(final_call)
+            usages = [call_usage(call) for call in calls]
+            if calls:
+                input_tokens = sum(
+                    int(usage.get("prompt_tokens") or 0)
+                    for usage in usages
+                )
+                output_tokens = sum(
+                    int(usage.get("completion_tokens") or 0)
+                    for usage in usages
+                )
+                token_usage_complete = all(
+                    usage.get("prompt_tokens") is not None
+                    and usage.get("completion_tokens") is not None
+                    for usage in usages
+                )
+            else:
+                input_tokens = answer.get("total_input_tokens")
+                output_tokens = answer.get("total_output_tokens")
+                token_usage_complete = (
+                    input_tokens is not None and output_tokens is not None
+                )
+
+            observed_cost = Decimal(0)
+            cost_observed = False
+            fallback_cost_complete = bool(calls)
+            observed_credits = Decimal(0)
+            credits_observed = False
+            credits_complete = bool(calls)
+            credits_applicable = data["spec"].get("provider") == "kendr"
+            for attempt in calls:
+                attempt_cost, cost_known = call_cost_usd(attempt)
+                observed_cost += attempt_cost
+                cost_observed = cost_observed or cost_known
+                fallback_cost_complete = fallback_cost_complete and cost_known
+                if credits_applicable:
+                    attempt_credits, credits_known = call_kendr_credits(attempt)
+                    observed_credits += attempt_credits
+                    credits_observed = credits_observed or credits_known
+                    credits_complete = credits_complete and credits_known
+
+            operation = operations_by_question.get(str(qid), {})
+            operation_cost = operation.get("observed_cumulative_cost_usd")
+            if operation_cost is not None:
+                observed_cost = Decimal(str(operation_cost))
+                cost_observed = True
+            elif not calls:
+                answer_cost = (answer.get("api_info") or {}).get(
+                    "benchmark_cost_usd"
+                )
+                if answer_cost is not None:
+                    observed_cost = Decimal(str(answer_cost))
+                    cost_observed = True
+                    fallback_cost_complete = True
+            cost_complete = bool(
+                operation.get("cost_complete", fallback_cost_complete)
+            )
+            observed_latency = operation.get(
+                "observed_cumulative_latency_ms"
+            )
+            if observed_latency is None and calls:
+                known_latencies = [
+                    float(call["latency_ms"])
+                    for call in calls
+                    if call.get("latency_ms") is not None
+                ]
+                observed_latency = sum(known_latencies)
+            latency_complete = bool(
+                operation.get(
+                    "latency_complete",
+                    bool(calls)
+                    and all(call.get("latency_ms") is not None for call in calls),
+                )
+            )
+            cumulative_latency = operation.get("cumulative_latency_ms")
+            if cumulative_latency is None and latency_complete:
+                cumulative_latency = observed_latency
+            cap = operation.get("output_cap") or {}
+            max_attempt_output = max(
+                (
+                    int(usage["completion_tokens"])
+                    for usage in usages
+                    if usage.get("completion_tokens") is not None
+                ),
+                default=None,
             )
             rows.append(
                 {
@@ -472,32 +725,67 @@ def build_question_rows(
                     "graded": bool(judgment)
                     and judgment.get("score") not in (None, -1),
                     "answer_error": answer_failed(answer),
-                    "input_tokens": usage.get(
-                        "prompt_tokens", answer.get("total_input_tokens")
+                    "attempt_count": operation.get(
+                        "attempt_count", len(calls)
                     ),
-                    "output_tokens": output_tokens,
-                    "total_tokens": (
-                        usage.get("total_tokens")
-                        or (
-                            (answer.get("total_input_tokens") or 0)
-                            + (answer.get("total_output_tokens") or 0)
-                        )
+                    "retry_count": operation.get(
+                        "retry_count", max(0, len(calls) - 1)
                     ),
-                    "cost_usd": call.get("cost_usd")
-                    or answer.get("api_info", {}).get(
-                        "benchmark_cost_usd"
+                    "reported_cumulative_input_tokens": input_tokens,
+                    "reported_cumulative_output_tokens": output_tokens,
+                    "reported_cumulative_total_tokens": (
+                        (input_tokens or 0) + (output_tokens or 0)
+                        if input_tokens is not None or output_tokens is not None
+                        else None
                     ),
-                    "kendr_credits": call.get("kendr_credits"),
-                    "latency_ms": call.get("latency_ms"),
-                    "actual_model": call.get("actual_model"),
-                    "selected_route": routing.get("selected_model_alias"),
-                    "provider_model": routing.get("provider_model"),
-                    "router_latency_ms": routing.get("router_latency_ms"),
-                    "provider_latency_ms": routing.get(
+                    "token_usage_complete": token_usage_complete,
+                    "token_totals_are_lower_bounds": not token_usage_complete,
+                    "observed_cumulative_cost_usd": (
+                        format(observed_cost, "f") if cost_observed else None
+                    ),
+                    "cumulative_cost_usd": operation.get(
+                        "cumulative_cost_usd",
+                        format(observed_cost, "f")
+                        if cost_observed and cost_complete
+                        else None,
+                    ),
+                    "cost_complete": cost_complete,
+                    "observed_cost_is_lower_bound": not cost_complete,
+                    "observed_cumulative_kendr_credits": (
+                        format(observed_credits, "f")
+                        if credits_observed
+                        else None
+                    ),
+                    "kendr_credits_complete": (
+                        credits_complete
+                        if credits_applicable and calls
+                        else None
+                    ),
+                    "observed_cumulative_latency_ms": observed_latency,
+                    "cumulative_latency_ms": cumulative_latency,
+                    "latency_complete": latency_complete,
+                    "final_attempt_actual_model": final_call.get(
+                        "actual_model"
+                    ),
+                    "final_attempt_selected_route": routing.get(
+                        "selected_model_alias"
+                    ),
+                    "final_attempt_provider_model": routing.get(
+                        "provider_model"
+                    ),
+                    "final_attempt_router_latency_ms": routing.get(
+                        "router_latency_ms"
+                    ),
+                    "final_attempt_provider_latency_ms": routing.get(
                         "provider_latency_ms"
                     ),
-                    "exceeded_requested_output_cap": bool(
-                        output_tokens and output_tokens > requested_cap
+                    "output_cap_status": cap.get("status"),
+                    "maximum_attempt_output_tokens": cap.get(
+                        "maximum_observed_output_tokens", max_attempt_output
+                    ),
+                    "measured_attempt_exceeded_requested_output_cap": bool(
+                        max_attempt_output is not None
+                        and max_attempt_output > requested_cap
                     ),
                 }
             )
@@ -516,10 +804,24 @@ def build_attempt_rows(
 ) -> list[dict[str, Any]]:
     rows = []
     for key, data in panel.items():
+        credits_applicable = data["spec"].get("provider") == "kendr"
         for call in data["calls"]:
             usage = call_usage(call)
             routing = call_routing(call)
             output_tokens = usage.get("completion_tokens")
+            input_tokens = usage.get("prompt_tokens")
+            token_usage_complete = (
+                input_tokens is not None and output_tokens is not None
+            )
+            cost, cost_complete = call_cost_usd(call)
+            credits, credits_complete = call_kendr_credits(call)
+            cap_status = (
+                "unknown"
+                if output_tokens is None
+                else "fail"
+                if int(output_tokens) > requested_cap
+                else "pass"
+            )
             rows.append(
                 {
                     "panel_key": key,
@@ -534,18 +836,36 @@ def build_attempt_rows(
                     if isinstance(call.get("error"), dict)
                     else "",
                     "error_message": call_error(call),
-                    "input_tokens": usage.get("prompt_tokens"),
-                    "output_tokens": output_tokens,
-                    "cost_usd": call.get("cost_usd"),
-                    "kendr_credits": call.get("kendr_credits"),
+                    "reported_input_tokens": input_tokens,
+                    "reported_output_tokens": output_tokens,
+                    "reported_total_tokens": (
+                        int(input_tokens) + int(output_tokens)
+                        if token_usage_complete
+                        else None
+                    ),
+                    "token_usage_complete": token_usage_complete,
+                    "observed_cost_usd": (
+                        format(cost, "f") if cost_complete else None
+                    ),
+                    "cost_complete": cost_complete,
+                    "observed_kendr_credits": (
+                        format(credits, "f")
+                        if credits_applicable and credits_complete
+                        else None
+                    ),
+                    "kendr_credits_complete": (
+                        credits_complete if credits_applicable else None
+                    ),
                     "latency_ms": call.get("latency_ms"),
                     "selected_route": routing.get("selected_model_alias"),
                     "provider_model": routing.get("provider_model"),
                     "provider_latency_ms": routing.get(
                         "provider_latency_ms"
                     ),
-                    "exceeded_requested_output_cap": bool(
-                        output_tokens and output_tokens > requested_cap
+                    "output_cap_status": cap_status,
+                    "measured_output_exceeded_requested_cap": bool(
+                        output_tokens is not None
+                        and int(output_tokens) > requested_cap
                     ),
                 }
             )
@@ -566,6 +886,84 @@ def detailed_report(
         )
 
     leader = metrics[0]
+    canonical_path = root / "leaderboard.json"
+    canonical = read_json(canonical_path) if canonical_path.is_file() else {}
+    trial_rows: list[list[Any]] = []
+    for canonical_row in canonical.get("results") or []:
+        panel_key = str(canonical_row.get("panel_key") or "")
+        data = panel.get(panel_key)
+        selected_manifest = (
+            read_json(data["run_dir"] / "manifest.json")
+            if data and (data["run_dir"] / "manifest.json").is_file()
+            else {}
+        )
+        finalization = selected_manifest.get("finalization") or {}
+        captured_trials = int(canonical_row.get("captured_trial_count") or 1)
+        excluded = canonical_row.get("excluded_later_trial_run_ids") or []
+        if captured_trials <= 1 and not finalization:
+            continue
+        excluded_cost = 0.0
+        excluded_cost_is_lower_bound = False
+        for run_id in excluded:
+            excluded_summary_path = root / "runs" / str(run_id) / "summary.json"
+            if not excluded_summary_path.is_file():
+                continue
+            excluded_summary = read_json(excluded_summary_path)
+            excluded_api = excluded_summary.get("current_api_run") or {}
+            if excluded_api.get("cost_usd") is not None:
+                excluded_cost += float(excluded_api["cost_usd"])
+            excluded_cost_is_lower_bound = (
+                excluded_cost_is_lower_bound
+                or bool(excluded_api.get("cost_total_is_lower_bound"))
+            )
+        trial_rows.append(
+            [
+                canonical_row.get("model"),
+                Path(str(canonical_row.get("run_dir"))).name,
+                captured_trials,
+                ", ".join(map(str, excluded)) or "none",
+                (
+                    ("≥" if excluded_cost_is_lower_bound else "")
+                    + money(excluded_cost)
+                    if excluded
+                    else "$0.000000"
+                ),
+                (
+                    f"{finalization.get('mode')} (inference replayed: "
+                    f"{'yes' if finalization.get('provider_inference_replayed') else 'no'})"
+                    if finalization
+                    else "none"
+                ),
+            ]
+        )
+    trial_section: list[str] = []
+    if trial_rows:
+        trial_section = [
+            "## Trial selection and interrupted-run recovery",
+            "",
+            markdown_table(
+                [
+                    "Model",
+                    "Selected first trial",
+                    "Captured trials",
+                    "Excluded later trials",
+                    "Excluded captured cost",
+                    "Recovery",
+                ],
+                trial_rows,
+            ),
+            "",
+            "The canonical rebuild selects the earliest run with captured "
+            "provider calls. Manifest-only starts may be skipped, but a later "
+            "outcome-bearing rerun is never substituted after observing the "
+            "first trial. Interrupted first-trial answers may be graded "
+            "offline only after every planned question is linked back to its "
+            "captured call; provider inference is not replayed.",
+            "Excluded later trials do not enter canonical quality, reliability, "
+            "latency, token, or cost totals, but their spend remains part of "
+            "the overall benchmarking campaign.",
+            "",
+        ]
     sol = find("openai-sol")
     kendr = find("kendr-intelligent")
     total_input = sum(int(row["input_tokens"] or 0) for row in metrics)
@@ -574,6 +972,19 @@ def detailed_report(
         float(row["cost_usd"]) for row in metrics if row["cost_usd"] is not None
     )
     raw_failures = sum(not row["success"] for row in attempts)
+    final_successes = sum(int(row["final_successes"] or 0) for row in metrics)
+    final_failures = sum(int(row["final_failures"] or 0) for row in metrics)
+    kendr_cost_ratio = (
+        ratio(
+            kendr["quality_points_per_usd"],
+            sol["quality_points_per_usd"],
+        )
+        if kendr
+        and sol
+        and float(kendr.get("final_reliability") or 0) >= 0.8
+        and float(sol.get("final_reliability") or 0) >= 0.8
+        else None
+    )
     seconds = lambda value: (
         number(float(value) / 1000, 2) if value is not None else "n/a"
     )
@@ -584,55 +995,88 @@ def detailed_report(
                 rank,
                 row["tier"] or "n/a",
                 row["model"],
+                percent(row.get("score_weighted_operational_goodput")),
                 percent(row["quality_score"]),
                 interval_text(
                     {
-                        "low": row["quality_ci95_low"],
-                        "high": row["quality_ci95_high"],
-                        "degenerate": row["quality_ci95_degenerate"],
+                        "low": row["ranking_ci95_low"],
+                        "high": row["ranking_ci95_high"],
+                        "degenerate": row["ranking_ci95_degenerate"],
                     }
                 ),
                 percent(row["final_reliability"]),
                 percent(row["raw_attempt_reliability"]),
-                f"{row['input_tokens']:,}",
-                f"{row['output_tokens']:,}",
-                money(row["cost_usd"]),
+                ("≥" if row.get("token_total_is_lower_bound") else "")
+                + f"{row['input_tokens']:,}",
+                ("≥" if row.get("token_total_is_lower_bound") else "")
+                + f"{row['output_tokens']:,}",
+                (
+                    "≥" if row.get("cost_total_is_lower_bound") else ""
+                )
+                + money(row["cost_usd"]),
                 seconds(row["p50_latency_ms"]),
                 seconds(row["p95_latency_ms"]),
                 percent(row["output_cap_compliance"]),
             ]
         )
     pair_rows = []
-    for higher, lower in zip(metrics, metrics[1:]):
-        deltas = paired_deltas(
-            higher.get("_question_scores") or {},
-            lower.get("_question_scores") or {},
-        )
-        if not deltas:
-            continue
-        interval = bootstrap_ci(
-            deltas,
-            seed=stable_seed(
-                f"{higher['panel_key']}|{lower['panel_key']}"
-            ),
-        )
-        low, high = interval["low"], interval["high"]
-        separated = low is not None and high is not None and (
-            low > 0 or high < 0
-        )
+    canonical_adjacent = canonical.get("adjacent_pair_tests") or []
+    for item in canonical_adjacent:
         pair_rows.append(
             [
-                higher["model"],
-                lower["model"],
-                f"{sum(deltas) / len(deltas) * 100:+.1f} pp",
-                f"{low * 100:+.1f} to {high * 100:+.1f} pp",
-                f"{sum(d > 0 for d in deltas)}/"
-                f"{sum(d < 0 for d in deltas)}/"
-                f"{sum(d == 0 for d in deltas)}",
-                "yes" if separated else "no",
+                item["higher_ranked"],
+                item["lower_ranked"],
+                f"{float(item['mean_difference']) * 100:+.1f} pp",
+                f"{float(item['ci95_low']) * 100:+.1f} to "
+                f"{float(item['ci95_high']) * 100:+.1f} pp",
+                f"{item['wins_higher_ranked']}/"
+                f"{item['wins_lower_ranked']}/{item['ties']}",
+                number(item.get("randomization_p_value"), 4),
+                number(item.get("holm_adjusted_p_value"), 4),
+                "yes" if item.get("separates_at_fwer_05") else "no",
+                "yes"
+                if item.get("practically_equivalent_at_95")
+                else "no",
             ]
         )
-    separated_pairs = sum(row[5] == "yes" for row in pair_rows)
+    if not canonical_adjacent:
+        for higher, lower in zip(metrics, metrics[1:]):
+            deltas = paired_deltas(
+                higher.get("_ranking_question_scores")
+                or higher.get("_question_scores")
+                or {},
+                lower.get("_ranking_question_scores")
+                or lower.get("_question_scores")
+                or {},
+            )
+            if not deltas:
+                continue
+            interval = bootstrap_ci(
+                deltas,
+                seed=stable_seed(
+                    f"{higher['panel_key']}|{lower['panel_key']}"
+                ),
+            )
+            low, high = interval["low"], interval["high"]
+            separated = low is not None and high is not None and (
+                low > 0 or high < 0
+            )
+            pair_rows.append(
+                [
+                    higher["model"],
+                    lower["model"],
+                    f"{sum(deltas) / len(deltas) * 100:+.1f} pp",
+                    f"{low * 100:+.1f} to {high * 100:+.1f} pp",
+                    f"{sum(d > 0 for d in deltas)}/"
+                    f"{sum(d < 0 for d in deltas)}/"
+                    f"{sum(d == 0 for d in deltas)}",
+                    "n/a",
+                    "n/a",
+                    "yes" if separated else "no",
+                    "not tested",
+                ]
+            )
+    separated_pairs = sum(row[7] == "yes" for row in pair_rows)
     capability_rows = [
         [
             row["model"],
@@ -646,11 +1090,18 @@ def detailed_report(
     ]
     efficiency_rows = []
     for row in metrics:
+        relative_efficiency_eligible = bool(
+            row.get("final_reliability") is not None
+            and float(row["final_reliability"]) >= 0.8
+            and sol
+            and sol.get("final_reliability") is not None
+            and float(sol["final_reliability"]) >= 0.8
+        )
         cost_eff = (
             ratio(
                 row["quality_points_per_usd"], sol["quality_points_per_usd"]
             )
-            if sol
+            if relative_efficiency_eligible
             else None
         )
         token_eff = (
@@ -658,17 +1109,52 @@ def detailed_report(
                 sol["tokens_per_quality_point"],
                 row["tokens_per_quality_point"],
             )
-            if sol
+            if relative_efficiency_eligible
             else None
         )
+        row_tokens_are_lower_bound = bool(
+            row.get("token_total_is_lower_bound")
+        )
+        sol_tokens_are_lower_bound = bool(
+            sol and sol.get("token_total_is_lower_bound")
+        )
+        if not relative_efficiency_eligible:
+            token_efficiency = "n/a"
+        elif row_tokens_are_lower_bound and sol_tokens_are_lower_bound:
+            token_efficiency = "n/a"
+        elif row_tokens_are_lower_bound:
+            token_efficiency = f"≤{multiplier(token_eff)}"
+        elif sol_tokens_are_lower_bound:
+            token_efficiency = f"≥{multiplier(token_eff)}"
+        else:
+            token_efficiency = multiplier(token_eff)
+        row_cost_is_lower_bound = bool(
+            row.get("cost_total_is_lower_bound")
+        )
+        sol_cost_is_lower_bound = bool(
+            sol and sol.get("cost_total_is_lower_bound")
+        )
+        if not relative_efficiency_eligible:
+            cost_efficiency = "n/a"
+        elif row_cost_is_lower_bound and sol_cost_is_lower_bound:
+            cost_efficiency = "n/a"
+        elif row_cost_is_lower_bound:
+            cost_efficiency = f"≤{multiplier(cost_eff)}"
+        elif sol_cost_is_lower_bound:
+            cost_efficiency = f"≥{multiplier(cost_eff)}"
+        else:
+            cost_efficiency = multiplier(cost_eff)
         efficiency_rows.append(
             [
                 row["model"],
-                number(row["tokens_per_quality_point"], 0),
-                money(row["usd_per_quality_point"]),
-                number(row["quality_points_per_usd"], 1),
-                multiplier(token_eff),
-                multiplier(cost_eff),
+                ("≥" if row_tokens_are_lower_bound else "")
+                + number(row["tokens_per_quality_point"], 0),
+                ("≥" if row_cost_is_lower_bound else "")
+                + money(row["usd_per_quality_point"]),
+                ("≤" if row_cost_is_lower_bound else "")
+                + number(row["quality_points_per_usd"], 1),
+                token_efficiency,
+                cost_efficiency,
             ]
         )
     error_rows = []
@@ -708,19 +1194,27 @@ def detailed_report(
         "## Executive result",
         "",
         (
-            f"**{leader['model']} placed first on this fixed LiveBench slice "
-            f"at {percent(leader['quality_score'])}"
-            f" ({interval_text({'low': leader['quality_ci95_low'], 'high': leader['quality_ci95_high'], 'degenerate': leader['quality_ci95_degenerate']})}).** "
-            f"It used {leader['total_tokens']:,} captured tokens, cost "
-            f"{money(leader['cost_usd'])}, and had p50/p95 end-to-end latency "
+            f"**{leader['model']} placed first by conservative score-weighted "
+            f"operational goodput at "
+            f"{percent(leader.get('score_weighted_operational_goodput'))}; "
+            f"its unconstrained objective quality was "
+            f"{percent(leader['quality_score'])}"
+            f" ({interval_text({'low': leader['ranking_ci95_low'], 'high': leader['ranking_ci95_high'], 'degenerate': leader['ranking_ci95_degenerate']})} ranking-metric CI).** "
+            f"It used "
+            f"{'at least ' if leader.get('token_total_is_lower_bound') else ''}"
+            f"{leader['total_tokens']:,} captured tokens, had "
+            f"{'at least ' if leader.get('cost_total_is_lower_bound') else ''}"
+            f"{money(leader['cost_usd'])} in captured cost, and had p50/p95 "
+            f"end-to-end latency "
             f"of {seconds(leader['p50_latency_ms'])}s/"
             f"{seconds(leader['p95_latency_ms'])}s."
         ),
         "",
         (
-            f"Of {len(pair_rows)} adjacent rank gaps, {separated_pairs} are "
-            "separated at 95% confidence on a paired per-question test. Ranks "
-            "whose gap is not separated should be read as a tie."
+            f"Of {len(pair_rows)} adjacent rank gaps, {separated_pairs} survive "
+            "the paired randomization family at Holm-adjusted 5%. A gap that "
+            "is neither significant nor practically equivalent is unresolved, "
+            "not a tie."
             if pair_rows
             else "Only one endpoint was measured, so no ranking claim is made."
         ),
@@ -731,25 +1225,42 @@ def detailed_report(
                 f"{percent(kendr['final_reliability'])} final-answer "
                 f"reliability against "
                 f"{percent(kendr['raw_attempt_reliability'])} raw-attempt "
-                f"reliability, because a failed call was retried. Its "
-                f"compliance with the requested "
+                f"reliability across {kendr['raw_attempts']} captured "
+                "attempts. Its conservative compliance with the requested "
                 f"{manifest['max_tokens']:,}-token cap was "
-                f"{percent(kendr['output_cap_compliance'])}: where that is "
-                "below 100%, its token and cost figures are not directly "
-                "comparable to a fully compliant endpoint's."
+                f"{percent(kendr['output_cap_compliance'])}. "
+                + (
+                    "Because cap compliance was incomplete, its token and "
+                    "cost figures require qualification."
+                    if float(kendr["output_cap_compliance"] or 0) < 1
+                    else (
+                        "Cap conformance did not imply availability: some "
+                        "capped outputs were rejected before an answer was "
+                        "returned."
+                        if float(kendr["final_reliability"] or 0) < 1
+                        else "All captured attempts had verifiable cap data."
+                    )
+                )
             )
             if kendr
             else "Kendr Intelligent was not part of this panel."
         ),
         "",
         (
-            f"The full paid pass captured {len(questions)} final answers from "
-            f"{len(attempts)} raw attempts ({raw_failures} raw failure), "
-            f"{total_input:,} input tokens, {total_output:,} output tokens, "
-            f"and {money(total_cost)} in measured API cost."
+            f"The full paid pass captured {len(questions)} final records "
+            f"({final_successes} successful and {final_failures} failed) from "
+            f"{len(attempts)} raw attempts ({raw_failures} raw "
+            f"{'failure' if raw_failures == 1 else 'failures'}), "
+            f"{'at least ' if any(row.get('token_total_is_lower_bound') for row in metrics) else ''}"
+            f"{total_input:,} input tokens, "
+            f"{'at least ' if any(row.get('token_total_is_lower_bound') for row in metrics) else ''}"
+            f"{total_output:,} output tokens, "
+            f"and {'at least ' if any(row.get('cost_total_is_lower_bound') for row in metrics) else ''}"
+            f"{money(total_cost)} in measured API cost."
         ),
         "",
         "This is a one-generation-per-model research slice. It is useful for controlled comparison but is not a statistically definitive claim about general model capability.",
+        "Endpoints ran in sequential blocks rather than an interleaved order, so latency rankings are descriptive and may include backend or network time-of-run effects.",
         "",
         "## Overall leaderboard",
         "",
@@ -758,8 +1269,9 @@ def detailed_report(
                 "#",
                 "Tier",
                 "Model/system",
+                "Score-weighted goodput",
                 "Quality",
-                "Question-bootstrap 95% CI",
+                "Ranking-metric bootstrap 95% CI",
                 "Final reliability",
                 "Raw reliability",
                 "Input tok.",
@@ -774,7 +1286,7 @@ def detailed_report(
         "",
         "The interval resamples this question set only. It does not include generation-to-generation variance or benchmark-selection uncertainty. A `*` marks an interval whose bound is censored by the score scale or built from too few distinct resample values to read as an estimated limit — at this sample size a bound printed as `100.0%` means the resampled mean reached the ceiling, not that the endpoint is estimated to score perfectly.",
         "",
-        "Models sharing a tier are not separated at 95% confidence. Ranks are printed in full for traceability only.",
+        "Tiers are descriptive overlap groups for marginal intervals. They do not establish either difference or equivalence.",
         "",
         "## Does each rank gap survive a paired test?",
         "",
@@ -785,13 +1297,16 @@ def detailed_report(
                 "Mean difference",
                 "95% CI",
                 "W/L/T",
-                "Separated at 95%?",
+                "Raw p",
+                "Holm p",
+                "FWER 5%?",
+                "Equivalent?",
             ],
             pair_rows
-            or [["n/a", "n/a", "n/a", "n/a", "n/a", "no pairs to compare"]],
+            or [["n/a"] * 8 + ["no pairs to compare"]],
         ),
         "",
-        "Each row resamples per-question differences between two adjacent ranks. This is the only test that uses the fact that both endpoints answered the same questions; the marginal intervals above are a weaker check.",
+        "The canonical leaderboard tests every endpoint pair with a two-sided paired sign-randomization test, then applies Holm family-wise correction. This table is the adjacent subset.",
         "",
         "## Quality by capability",
         "",
@@ -811,6 +1326,8 @@ def detailed_report(
         "",
         "## Efficiency",
         "",
+        "Relative efficiency indices use direct OpenAI Sol as 1.00× and are shown only for endpoints with at least 80% final-answer reliability. Absolute captured ratios remain visible below that gate.",
+        "",
         markdown_table(
             [
                 "Model/system",
@@ -824,8 +1341,9 @@ def detailed_report(
         ),
         "",
         "A quality point is one point on the 0–1 task scale, summed over questions. Token counts are provider-reported and tokenizer-specific, so cross-family token efficiency is directional rather than physically identical.",
+        "`≥` and `≤` mark one-sided bounds inherited from missing failed-attempt usage or cost telemetry.",
         "",
-        "## Reliability, retries, and the remaining token-cap defect",
+        "## Reliability, retries, and output-cap telemetry",
         "",
         markdown_table(
             [
@@ -844,9 +1362,10 @@ def detailed_report(
             f"final-answer and raw-attempt reliability are reported as distinct "
             f"numbers. The largest observed output across the panel was "
             f"{max((int(row['max_output_tokens_observed'] or 0) for row in metrics), default=0):,} "
-            f"tokens against a requested cap of {manifest['max_tokens']:,}; a "
-            "rejected over-cap generation is counted as a cap violation even "
-            "though it produced no answer."
+            f"tokens against a requested cap of {manifest['max_tokens']:,}. "
+            "A rejected over-cap generation counts as a violation even when "
+            "it produces no answer; missing failure usage counts as unknown "
+            "and reduces conservative cap conformance."
         ),
         "",
         (
@@ -863,6 +1382,7 @@ def detailed_report(
             "Kendr-routed models."
         ),
         "",
+        *trial_section,
         "## Kendr Intelligent routing",
         "",
         markdown_table(
@@ -875,40 +1395,37 @@ def detailed_report(
         "## Artifact map",
         "",
         "- `model-metrics.csv`: one row per model/system with quality, cost, tokens, latency, reliability, cap, and capability metrics.",
-        f"- `question-level-results.csv`: all {len(questions)} final answers joined to objective judgments and call telemetry.",
+        f"- `question-level-results.csv`: all {len(questions)} final records joined to objective judgments and cumulative retry-inclusive tokens, observed cost, latency, and cap status; completeness flags identify one-sided telemetry bounds.",
         "- `raw-attempts.csv`: every provider attempt, including retries and errors.",
         "- `leaderboard.md`, `leaderboard.csv`, `leaderboard.json`: the standard matrix outputs.",
-        "- `runs/<run-id>/`: raw calls, final answers, judgments, task/group scores, and per-model reports.",
+        "- `runs/<run-id>/`: raw calls, final records, judgments, task/group scores, and per-model reports.",
         "",
         "## Conclusion",
         "",
         (
-            (
-                f"On the measured workload, {leader['model']} placed first on "
-                f"quality"
-                + (
-                    (
-                        f" and {kendr['model']} was "
-                        f"{multiplier(ratio(kendr['quality_points_per_usd'], sol['quality_points_per_usd']))} "
-                        "as cost-efficient as Sol by quality points per "
-                        "measured USD"
-                    )
-                    if kendr
-                    and sol
-                    and ratio(
-                        kendr["quality_points_per_usd"],
-                        sol["quality_points_per_usd"],
-                    )
-                    is not None
-                    else ""
-                )
-                + ". That cost ratio compares a Kendr invoice against OpenAI "
-                "list price, so it is a buyer-facing ratio rather than an "
-                "inference-cost ratio. Output-cap compliance and "
-                "reasoning-parameter normalization remain the open fairness "
-                "items; until both hold at 100%, this is an "
-                "endpoint-as-served comparison."
+            f"On the measured workload, {leader['model']} placed first on "
+            "quality"
+            + (
+                f" and {kendr['model']} was "
+                f"{multiplier(kendr_cost_ratio)} as cost-efficient as Sol by "
+                "quality points per measured USD"
+                if kendr_cost_ratio is not None
+                else ""
             )
+            + ". "
+            + (
+                "That cost ratio compares a Kendr invoice against OpenAI list "
+                "price, so it is a buyer-facing ratio rather than an "
+                "inference-cost ratio. "
+                if kendr_cost_ratio is not None
+                else "Relative efficiency is not promoted for endpoints below "
+                "the 80% final-answer reliability gate. "
+            )
+            + "All measured output usage conformed to the requested output "
+            "cap, but failed attempts without usage are conservatively "
+            "unknown. Sampling and reasoning parameters remain "
+            "provider-effective rather than normalized, so this is an "
+            "endpoint-as-served comparison."
         ),
         "",
     ]
@@ -1063,6 +1580,120 @@ def methodology_document(
             ]
         )
     tasks = [task.rsplit("/", 1)[-1] for task in manifest["tasks"]]
+    sampling = manifest.get("sampling") or {}
+    sampling_dates = sampling.get("selected_date_distribution") or {}
+    sampled_ids = sampling.get("selected_ids") or []
+    planned_question_count = (
+        len(sampled_ids)
+        if sampled_ids
+        else len(tasks) * int(manifest["questions_per_task"])
+    )
+    final_successes = sum(
+        int(
+            (data["summary"].get("reliability") or {}).get(
+                "successful_answers", 0
+            )
+        )
+        for data in panel.values()
+    )
+    final_failures = sum(
+        int(
+            (data["summary"].get("reliability") or {}).get(
+                "failed_answers", 0
+            )
+        )
+        for data in panel.values()
+    )
+    final_missing = sum(
+        int(
+            (data["summary"].get("reliability") or {}).get(
+                "missing_answers", 0
+            )
+        )
+        for data in panel.values()
+    )
+    final_record_detail = (
+        f"{final_successes + final_failures} "
+        f"({final_successes} successful, {final_failures} failed"
+        + (f", {final_missing} missing" if final_missing else "")
+        + ")"
+    )
+    finalizations: list[str] = []
+    for data in panel.values():
+        run_manifest_path = data["run_dir"] / "manifest.json"
+        run_manifest = (
+            read_json(run_manifest_path)
+            if run_manifest_path.is_file()
+            else {}
+        )
+        finalization = run_manifest.get("finalization") or {}
+        if finalization:
+            finalizations.append(
+                f"{data['spec']['label']}: {data['run_dir'].name}, "
+                f"{finalization.get('mode')}, provider inference replayed="
+                f"{bool(finalization.get('provider_inference_replayed'))}"
+            )
+    kendr_entries = [
+        data
+        for data in panel.values()
+        if data["spec"].get("provider") == "kendr"
+    ]
+    kendr_cap_patch_recorded = bool(kendr_entries) and all(
+        KENDR_OUTPUT_CAP_COMPATIBILITY_PATCH
+        in (
+            read_json(data["run_dir"] / "manifest.json").get(
+                "compatibility_patches", []
+            )
+            if (data["run_dir"] / "manifest.json").is_file()
+            else []
+        )
+        for data in kendr_entries
+    )
+    requested_cap = int(manifest["max_tokens"])
+    if kendr_cap_patch_recorded:
+        kendr_chat_requested = (
+            f"`temperature=0`, `max_tokens={requested_cap}`, and "
+            f"`max_output_tokens={requested_cap}`"
+        )
+        kendr_chat_interpretation = (
+            "The run manifests record the dual-field compatibility patch; "
+            "`max_output_tokens` is the service-recognized limit. Observed "
+            "cap compliance still determines whether the endpoint honored it."
+        )
+        kendr_provider_interpretation = (
+            "Provider defaults govern temperature/thinking; the requested "
+            "resolved output limit is forwarded."
+        )
+        cap_contract_summary = (
+            "These runs record the compatibility patch that sends both the "
+            "OpenAI-style `max_tokens` field and Kendr's recognized "
+            "`max_output_tokens` field. Any observed over-cap output is "
+            "therefore endpoint nonconformance, not an omitted client field. "
+            "Temperature and reasoning-effort controls remain absent from "
+            "Kendr's request contract."
+        )
+    else:
+        kendr_chat_requested = (
+            f"Historical run: `temperature=0`, `max_tokens={requested_cap}`"
+        )
+        kendr_chat_interpretation = (
+            "The run manifests do not record the dual-field compatibility "
+            "patch. Kendr recognizes `max_output_tokens`, so this legacy "
+            "matrix may have fallen back to the service default."
+        )
+        kendr_provider_interpretation = (
+            "Provider defaults governed temperature/thinking and the resolved "
+            "service output limit in this legacy matrix."
+        )
+        cap_contract_summary = (
+            "This matrix predates the recorded dual-field compatibility patch. "
+            "Kendr's request contract recognizes `max_output_tokens`, not "
+            "only the OpenAI-style `max_tokens` field, and defaults to 4,096 "
+            "when the recognized field is absent. The current harness sends "
+            "both fields, but these historical token and cost axes require a "
+            "new run before they can be treated as controlled. Temperature "
+            "and reasoning-effort controls likewise remain unnormalized."
+        )
     # Read the pin from what the runs actually recorded rather than repeating a
     # literal that can drift away from the code.
     revision = next(
@@ -1086,17 +1717,53 @@ def methodology_document(
                 ["Release", manifest["livebench_release"]],
                 ["Tasks", ", ".join(tasks)],
                 ["Questions per task", manifest["questions_per_task"]],
-                ["Questions per model", len(tasks) * manifest["questions_per_task"]],
+                ["Questions per model", planned_question_count],
                 [
-                    "Total final answers",
-                    len(tasks)
-                    * manifest["questions_per_task"]
-                    * len(manifest["models"]),
+                    "Sampling",
+                    (
+                        f"{sampling.get('mode')} seed={sampling.get('seed')}"
+                        if sampling
+                        else "Legacy positional slice; exact preflight not recorded"
+                    ),
                 ],
+                [
+                    "Minimum release date",
+                    sampling.get("minimum_release_date") or "None",
+                ],
+                [
+                    "Selected question dates",
+                    json.dumps(sampling_dates, sort_keys=True)
+                    if sampling_dates
+                    else "Not recorded in legacy manifest",
+                ],
+                [
+                    "Eligible-pool SHA-256",
+                    sampling.get("content_hash") or "Not recorded",
+                ],
+                ["Final records", final_record_detail],
                 ["Requested output cap", manifest["max_tokens"]],
+                [
+                    "Final-answer deadline",
+                    manifest.get("deadline_ms") or "Not configured",
+                ],
+                [
+                    "Per-answer USD budget",
+                    manifest.get("max_cost_usd_per_answer")
+                    or "Not configured",
+                ],
                 ["Concurrent requests", manifest["parallel_requests"]],
                 ["Concurrent grading", manifest["parallel_grading"]],
                 ["Generation repeats", "1"],
+                [
+                    "Trial selection",
+                    "Earliest run with captured provider calls; manifest-only "
+                    "starts may be skipped and later outcome-bearing reruns "
+                    "are excluded",
+                ],
+                [
+                    "Interrupted-run finalization",
+                    "; ".join(finalizations) if finalizations else "None",
+                ],
                 ["Streaming", "Off"],
                 ["Tools/web search", "Off"],
                 ["Kendr USD/credit", manifest["kendr_usd_per_credit"]],
@@ -1106,26 +1773,41 @@ def methodology_document(
         "Reproduction command:",
         "",
         "```powershell",
-        ".venv\\Scripts\\kendr-benchmark-matrix.exe --confirm-paid-run --label all-models-timeout-fixed",
+        (
+            ".venv\\Scripts\\llm-benchmark-matrix.exe "
+            f"--release {manifest['livebench_release']} "
+            f"--questions-per-task {manifest['questions_per_task']} "
+            f"--sample-mode {sampling.get('mode', 'seeded-random')} "
+            f"--sample-seed {sampling.get('seed', 20260801)} "
+            f"--max-tokens {manifest['max_tokens']} "
+            f"--deadline-ms {manifest.get('deadline_ms', 120000)} "
+            f"--parallel-requests {manifest['parallel_requests']} "
+            f"--parallel-grading {manifest['parallel_grading']} "
+            f"--reasoning-effort {manifest.get('reasoning_effort', 'none')} "
+            "--confirm-paid-run --label all-models-final-protocol"
+        ),
         "```",
         "",
         "Rebuild the reports without new API calls:",
         "",
         "```powershell",
-        f".venv\\Scripts\\kendr-benchmark-matrix.exe --rebuild \"{root}\"",
+        f".venv\\Scripts\\llm-benchmark-matrix.exe --rebuild \"{root}\"",
         f".venv\\Scripts\\python.exe scripts\\generate_matrix_documentation.py \"{root}\"",
         "```",
         "",
         "## What was measured",
         "",
-        "LiveBench provides objective, task-specific ground-truth graders. The run used one task from each of five categories: table joining, summarization, language connections, competition math, and zebra-puzzle reasoning. Provider failures are normalized to zero for aggregate quality while raw judgments and raw calls remain available.",
+        "LiveBench provides objective, task-specific ground-truth graders. New runs resolve the cumulative release pool before inference, select deterministic exact IDs per category/task, and persist both IDs and an eligible-pool content hash. Provider failures and missing planned work are normalized to zero while raw judgments and calls remain available.",
+        "",
+        "For matrix rebuilds, the first directory containing provider calls is the endpoint trial. A later rerun cannot replace it after outcomes are visible. If orchestration stopped after LiveBench wrote its answers, `llm-benchmark-livebench finalize` can grade and export that original trial without making another inference request, but only after all frozen question IDs link to captured calls.",
         "",
         "Measurements:",
         "",
-        "- Quality: mean official objective score across all 15 requested answers.",
+        "- Quality: mean official objective score on the immutable planned-question denominator; provider failures and missing work count as zero.",
+        "- Operational goodput: objective score delivered only when the answer succeeds and satisfies the retry-inclusive deadline, USD budget, and per-attempt output cap. Unknown required telemetry is zero in the conservative rate.",
         "- Relevance proxy: the same task-specific correctness and instruction-compliance score; no generic semantic judge.",
         "- Reliability: final answer success and raw provider-attempt success, reported separately.",
-        "- Latency: client-observed, non-streaming, end-to-end duration. TTFT is unavailable.",
+        "- Latency: cumulative final-answer service time across failed attempts, retries, and multi-turn calls. Attempt latency is retained separately; TTFT is unavailable.",
         "- Usage: provider-reported input, cached-input, reasoning, and output tokens when supplied.",
         "- Cost: direct OpenAI usage multiplied by the pinned local price catalog; Kendr uses provider-reported credits multiplied by $0.002/credit.",
         "- Efficiency: tokens and USD divided by accumulated quality points; these are derived research metrics, not official LiveBench fields.",
@@ -1137,18 +1819,18 @@ def methodology_document(
             [
                 [
                     "Direct OpenAI",
-                    "`temperature=0`, `max_completion_tokens=2048`, `reasoning_effort=none`",
-                    "All three were sent through Chat Completions; no successful answer exceeded 2,048 output tokens.",
+                    f"`temperature=0`, `max_completion_tokens={requested_cap}`, `reasoning_effort=none`",
+                    "All three are sent through Chat Completions; observed cap compliance is reported per endpoint.",
                 ],
                 [
                     "Kendr OpenAI-compatible chat",
-                    "`temperature=0`, `max_tokens=2048`",
-                    "The inspected `InferenceRequest` has neither field; unknown fields are ignored and output falls back to 4,096.",
+                    kendr_chat_requested,
+                    kendr_chat_interpretation,
                 ],
                 [
                     "Kendr provider adapters",
                     "Messages, model alias, no tools, non-streaming",
-                    "Provider defaults govern temperature/thinking; the resolved 4,096 limit is forwarded.",
+                    kendr_provider_interpretation,
                 ],
                 [
                     "Opus 5 via Kendr",
@@ -1175,7 +1857,7 @@ def methodology_document(
         markdown_table(
             [
                 "Model/system",
-                "Run identifier",
+                "Requested endpoint ID",
                 "Architecture/size",
                 "Context",
                 "Advertised max output",
@@ -1197,13 +1879,14 @@ def methodology_document(
         "- Kendr charges are the actual credits reported in each response, converted at the configured $0.002/credit.",
         "- Kendr Intelligent has no single static rate because routing is dynamic.",
         "- Cross-provider token counts are not tokenizer-normalized. Compare costs directly and treat raw token ratios as directional.",
+        "- Human-readable USD values use decimal round-half-even to six places; JSON and CSV retain the captured precision.",
         "- No prompt in this slice crossed OpenAI's long-context pricing threshold.",
         "",
-        "## Timeout verification and remaining contract issue",
+        "## Timeout and request-contract verification",
         "",
-        "The inspected outer TLS proxy now gives `/v1/` a 360-second read/send timeout. The rerun produced no 504 failures. A prior exact math preflight also passed after 57.84 seconds, confirming that the former short timeout was no longer terminating the request.",
+        "Transport behavior is reported from captured client attempts and error metadata. External proxy configuration is not inferred from benchmark responses; verify deployed timeouts separately when diagnosing 5xx or timeout failures.",
         "",
-        "A separate compatibility problem remains: the OpenAI-style `max_tokens` key is not part of Kendr's `InferenceRequest`; only `max_output_tokens` is recognized. The default is 4,096, and provider adapters forward that resolved limit. This explains outputs above the requested 2,048 and the one 4,096-token truncation failure. Temperature and reasoning-effort controls are likewise absent from this request contract.",
+        cap_contract_summary,
         "",
         "Relevant inspected source:",
         "",
@@ -1214,10 +1897,12 @@ def methodology_document(
         "",
         "## Statistical and practical limitations",
         "",
-        "- Only 15 questions per model and one generation per question: ranking noise can be large.",
-        "- This is a five-task slice, not the complete public LiveBench suite.",
-        "- Question-bootstrap intervals capture question-sampling uncertainty only.",
+        f"- Only {planned_question_count} planned questions per model and one generation per question: ranking noise can be large.",
+        f"- This is a {len(tasks)}-task slice, not the complete public LiveBench suite.",
+        "- Question-bootstrap intervals capture question-sampling uncertainty only. All endpoint pairs use paired sign-randomization with Holm family-wise correction; non-significance is not called a tie unless the interval also fits the declared practical-equivalence margin.",
+        "- The LiveBench release option is cumulative. Freshness comes from the recorded selected-date distribution and optional minimum-release-date floor, not from the release label alone.",
         "- Models were served through different transports and provider defaults.",
+        "- Endpoint blocks were sequential rather than interleaved, so latency ordering is descriptive and may include backend or network time-of-run effects.",
         "- Kendr Intelligent includes routing overhead and may select different models over time.",
         "- Non-streaming latency omits time-to-first-token and perceived streaming responsiveness.",
         "- The run did not test tool use, vision, long context, multi-turn behavior, safety, or production domain relevance.",
@@ -1277,6 +1962,7 @@ def main() -> int:
         methodology_document(root, manifest, panel),
         encoding="utf-8",
     )
+    _write_artifact_hashes(root)
     print(root / "detailed-report.md")
     print(root / "methodology-and-model-documentation.md")
     return 0

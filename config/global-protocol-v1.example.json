@@ -1,0 +1,242 @@
+{
+  "study": {
+    "protocol_id": "example-global-study-001",
+    "status": "planned",
+    "claim_type": "controlled-comparison",
+    "target_population": "Production-facing multilingual generative AI systems used for knowledge work, coding, and tool-assisted workflows across API and routed deployments",
+    "primary_endpoints": [
+      "failure-normalized task success",
+      "budget-and-deadline-qualified operational goodput"
+    ],
+    "decision_thresholds": {
+      "practical_quality_difference": 0.02,
+      "minimum_availability": 0.995,
+      "maximum_p95_e2e_ms": 30000,
+      "maximum_cost_usd_per_success": 0.5
+    }
+  },
+  "systems": [
+    {
+      "system_id": "candidate-reasoning-api@immutable-snapshot",
+      "provider": "example-provider-a",
+      "system_type": "reasoning-model",
+      "deployment_scope": "endpoint",
+      "access_mode": "first-party-api",
+      "version": "immutable-snapshot-id",
+      "input_modalities": ["text"],
+      "output_modalities": ["text"],
+      "declared_capabilities": ["reasoning", "coding", "tool-use", "multilingual"]
+    },
+    {
+      "system_id": "candidate-router@immutable-snapshot",
+      "provider": "example-provider-b",
+      "system_type": "router",
+      "deployment_scope": "routed-system",
+      "access_mode": "managed",
+      "version": "immutable-router-and-candidate-set-id",
+      "input_modalities": ["text"],
+      "output_modalities": ["text"],
+      "declared_capabilities": ["routing", "reasoning", "coding", "tool-use", "multilingual"]
+    }
+  ],
+  "evaluation": {
+    "tracks": [
+      "reasoning",
+      "knowledge",
+      "factuality",
+      "instruction-following",
+      "coding",
+      "long-context",
+      "multilingual",
+      "robustness",
+      "safety",
+      "efficiency",
+      "reliability",
+      "production-tasks",
+      "agentic-tool-use",
+      "human-preference"
+    ],
+    "metrics": [
+      {"name": "task_success", "unit": "proportion", "direction": "higher"},
+      {"name": "operational_goodput", "unit": "proportion", "direction": "higher"},
+      {"name": "availability", "unit": "proportion", "direction": "higher"},
+      {"name": "cost_per_success", "unit": "USD", "direction": "lower"},
+      {"name": "end_to_end_latency", "unit": "milliseconds", "direction": "lower"},
+      {"name": "time_to_first_answer_token", "unit": "milliseconds", "direction": "lower"},
+      {"name": "energy_per_success", "unit": "watt-hours", "direction": "lower"},
+      {"name": "calibration_error", "unit": "proportion", "direction": "lower"},
+      {"name": "worst_slice_success", "unit": "proportion", "direction": "higher"},
+      {"name": "safety_violation_rate", "unit": "proportion", "direction": "lower"}
+    ],
+    "single_composite_is_primary": false,
+    "report_pareto_frontier": true,
+    "human_baselines": true,
+    "production_baselines": true
+  },
+  "sampling": {
+    "minimum_items": 1200,
+    "repeats_per_item": 5,
+    "stratification_fields": [
+      "track",
+      "difficulty",
+      "language",
+      "modality",
+      "source",
+      "production_frequency"
+    ]
+  },
+  "statistics": {
+    "prospective_power_analysis": true,
+    "minimum_detectable_effect": 0.02,
+    "hierarchical_item_generation_model": true,
+    "cluster_robust_uncertainty": true,
+    "confidence_intervals": true,
+    "effect_sizes": true,
+    "multiplicity_control": "holm",
+    "practical_equivalence_margin": 0.02,
+    "failures_score_zero": true,
+    "missingness_sensitivity_analysis": true
+  },
+  "coverage": {
+    "production_task_fraction": 0.35,
+    "language_count": 15,
+    "language_family_count": 8,
+    "locale_count": 15,
+    "native_speaker_review": true,
+    "modalities": ["text"],
+    "context_length_buckets": ["0-8k", "8-32k", "32-128k", "128-512k", "512k+"],
+    "difficulty_bands": ["routine", "moderate", "hard", "frontier"],
+    "multi_turn": true,
+    "tool_use": true,
+    "worst_slice_reporting": true
+  },
+  "freshness": {
+    "maximum_item_age_days": 90,
+    "private_holdout_fraction": 0.3,
+    "rolling_refresh": true,
+    "contamination_audit": true,
+    "canary_items": true,
+    "semantic_deduplication": true,
+    "leakage_response_policy": "Quarantine affected items, invalidate impacted estimates, publish the correction, and rerun the frozen replacement stratum",
+    "freeze_before_inference": true,
+    "blind_broken_item_review": true
+  },
+  "fairness": {
+    "elicitation_regimes": ["controlled", "provider-optimized"],
+    "equal_resource_budgets": true,
+    "provider_recommended_settings": true,
+    "reasoning_and_sampling_disclosed": true,
+    "randomized_interleaving": true,
+    "normalized_token_measure": true,
+    "immutable_system_snapshots": true,
+    "refusal_policy": "Score task refusal as failure in capability tracks and separately assess appropriate refusal in safety tracks",
+    "divisions": ["closed", "open"]
+  },
+  "reproducibility": {
+    "pinned_code": true,
+    "pinned_harness": true,
+    "container_or_lockfile": true,
+    "hardware_and_region_manifest": true,
+    "content_hashes": true,
+    "machine_readable_schemas": true,
+    "public_raw_artifacts": true,
+    "one_command_replay": true,
+    "signed_append_only_log": true,
+    "answer_judgment_call_lineage": true,
+    "sbom_and_data_provenance": true
+  },
+  "operations": {
+    "measurement_days": 7,
+    "regions": 3,
+    "request_deadline_ms": 120000,
+    "max_cost_usd_per_request": 0.5,
+    "output_cap_tokens": 2048,
+    "load_scenarios": ["offline", "interactive", "server"],
+    "concurrency_levels": [1, 8, 32, 128],
+    "streaming_metrics": ["ttft", "ttfa", "tpot", "e2e"],
+    "minimum_requests_per_system": 5000,
+    "retry_inclusive": true,
+    "transport_retries_disabled_or_observed": true,
+    "error_taxonomy": true,
+    "availability_and_goodput": true,
+    "cost_per_success": true,
+    "budget_qualified_goodput": true,
+    "energy_and_carbon": true,
+    "drift_monitoring": true
+  },
+  "trustworthiness": {
+    "domains": [
+      "harmful-content",
+      "jailbreak-robustness",
+      "privacy",
+      "bias-and-fairness",
+      "factuality",
+      "cybersecurity",
+      "overrefusal",
+      "deception"
+    ],
+    "threat_models": ["ordinary user misuse", "expert adaptive attacker", "malicious tool output", "compromised dependency"],
+    "independent_red_team": true,
+    "adaptive_attacks": true,
+    "cross_language_modality": true,
+    "human_escalation": true,
+    "privacy_legal_review": true,
+    "calibration_and_abstention": true,
+    "incident_and_failover_tests": true
+  },
+  "specialized": {
+    "no_cross_scope_ranking": true,
+    "modality_specific_graders": true,
+    "judge_human_validation": true,
+    "minimum_judge_human_agreement": 0.85,
+    "multi_family_judge_panel": true,
+    "blinded_and_randomized_judging": true,
+    "saturation_retirement_threshold": 0.95,
+    "router": {
+      "full_candidate_counterfactuals": true,
+      "baselines": ["best-single", "uniform-random", "oracle"],
+      "regret_calibration_stability": true
+    },
+    "agent": {
+      "outcome_state_verification": true,
+      "long_horizon_trajectories": true
+    },
+    "retrieval": {
+      "ir_metrics": true,
+      "hard_negatives": true
+    }
+  },
+  "governance": {
+    "protocol_version": "KGBP-1.0",
+    "public_protocol": true,
+    "preregistration_required": true,
+    "minimum_independent_reviewers": 3,
+    "minimum_replicating_organizations": 2,
+    "conflict_disclosure": true,
+    "funding_disclosure": true,
+    "public_comment_and_change_control": true,
+    "appeals_and_corrections": true,
+    "benchmark_card": true,
+    "stakeholder_groups": 5,
+    "geographic_regions": 5,
+    "ethics_accessibility_license_review": true,
+    "standards_crosswalk": [
+      "NIST-AI-RMF",
+      "ISO-IEC-25059",
+      "ISO-IEC-23894",
+      "ISO-IEC-42001",
+      "MLPerf-principles"
+    ]
+  },
+  "evidence": {
+    "preregistration_uri": null,
+    "raw_artifact_bundle_uri": null,
+    "signed_manifest_uri": null,
+    "independent_review_uri": null,
+    "replication_reports": [],
+    "benchmark_card_uri": null,
+    "standards_crosswalk_uri": null,
+    "protocol_deviations_resolved": false,
+    "all_primary_tracks_adequately_powered": false
+  }
+}

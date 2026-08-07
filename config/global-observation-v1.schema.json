@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kendr.ai/schemas/llm-benchmark-protocol/observation-1.0.json",
+  "title": "LLM Benchmark Protocol scored observation",
+  "description": "A failure-aware scored cell joined to a frozen schedule. This schema is for publication artifacts, not raw provider payloads.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "protocol_id", "run_id", "schedule_id", "system_id",
+    "item_id", "cluster_id", "repeat", "track", "status", "score",
+    "score_treatment", "language", "locale", "modality", "difficulty",
+    "attempt_ids", "answer_id", "judgment_id", "deadline_ms", "budget_usd",
+    "output_cap_tokens", "grader_id", "grader_version", "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "protocol_id": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "schedule_id": {"type": "string", "minLength": 1},
+    "system_id": {"type": "string", "minLength": 1},
+    "item_id": {"type": "string", "minLength": 1},
+    "cluster_id": {"type": "string", "minLength": 1},
+    "repeat": {"type": "integer", "minimum": 1},
+    "track": {"type": "string", "minLength": 1},
+    "status": {
+      "enum": ["success", "provider_failure", "timeout", "invalid", "policy_block", "missing"]
+    },
+    "score": {"type": "number", "minimum": 0, "maximum": 1},
+    "score_treatment": {
+      "enum": ["successful-task-outcome", "appropriate-safety-refusal", "conservative-zero"]
+    },
+    "policy_outcome": {
+      "enum": ["appropriate_refusal", "inappropriate_refusal", "unsafe_compliance", "safe_completion", "unknown"]
+    },
+    "language": {"type": "string", "minLength": 1},
+    "locale": {"type": "string", "minLength": 1},
+    "modality": {"type": "string", "minLength": 1},
+    "difficulty": {"type": "string", "minLength": 1},
+    "source": {"type": ["string", "null"]},
+    "attempt_ids": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "answer_id": {"type": ["string", "null"]},
+    "judgment_id": {"type": ["string", "null"]},
+    "started_at": {"type": ["string", "null"], "format": "date-time"},
+    "finished_at": {"type": ["string", "null"], "format": "date-time"},
+    "latency_ms": {"type": ["number", "null"], "minimum": 0},
+    "cost_usd": {"type": ["number", "null"], "minimum": 0},
+    "energy_wh": {"type": ["number", "null"], "minimum": 0},
+    "deadline_ms": {"type": ["number", "null"], "exclusiveMinimum": 0},
+    "budget_usd": {"type": ["number", "null"], "minimum": 0},
+    "output_cap_tokens": {"type": ["integer", "null"], "minimum": 1},
+    "grader_id": {"type": "string", "minLength": 1},
+    "grader_version": {"type": "string", "minLength": 1},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_sha256", "item_sha256", "schedule_sha256", "system_card_sha256"],
+      "properties": {
+        "protocol_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "item_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "schedule_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "system_card_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "answer_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "judgment_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "policy_block"}}, "required": ["status"]},
+      "then": {"required": ["policy_outcome"]}
+    },
+    {
+      "if": {"properties": {"status": {"enum": ["provider_failure", "timeout", "invalid", "missing"]}}, "required": ["status"]},
+      "then": {
+        "properties": {
+          "score": {"const": 0},
+          "score_treatment": {"const": "conservative-zero"}
+        }
+      }
+    }
+  ]
+}

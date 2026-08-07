@@ -244,6 +244,9 @@ def test_openai_adapter_captures_usage_and_estimates_cost(
     assert captured["max_completion_tokens"] == 64
     assert captured["reasoning_effort"] == "none"
     assert captured["temperature"] == 0
+    # SDK retries are deliberately disabled: one call-log row is one
+    # observable transport attempt, and any outer retry gets its own row.
+    assert captured["client"]["max_retries"] == 0
     assert metadata["input_tokens"] == 100
     assert metadata["cached_tokens"] == 10
     assert metadata["benchmark_calls"][0]["provider"] == "openai"
@@ -251,7 +254,155 @@ def test_openai_adapter_captures_usage_and_estimates_cost(
     logged = json.loads(log.read_text(encoding="utf-8"))
     assert logged["cost_usd"] == "0.0005275"
     assert logged["cost_source"] == "estimated_openai_standard_rate_card"
+    assert logged["transport_max_retries"] == 0
+    assert logged["transport_retry_attempt_count"] == 0
+    assert logged["transport_attempt_visibility"] == (
+        "one_logged_call_per_sdk_attempt"
+    )
     assert "not-written-to-artifacts" not in log.read_text(encoding="utf-8")
+
+
+def test_openai_adapter_logs_api_failure_and_returns_livebench_error(
+    monkeypatch, tmp_path
+):
+    captured = {}
+
+    class RateLimitError(RuntimeError):
+        request_id = "req-rate-limited"
+        status_code = 429
+        body = {
+            "error": {
+                "message": "Rate limit exceeded",
+                "type": "rate_limit_error",
+            }
+        }
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            captured["client"] = kwargs
+
+            def create(**request):
+                captured["request"] = request
+                raise RateLimitError("request rejected")
+
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(create=create)
+            )
+
+    monkeypatch.setattr(openai, "OpenAI", FakeOpenAI)
+    log = tmp_path / "failed-openai-calls.jsonl"
+    monkeypatch.setenv("KENDR_LIVEBENCH_CALL_LOG", str(log))
+    monkeypatch.setenv("KENDR_LIVEBENCH_RUN_ID", "openai-failure-run")
+    monkeypatch.setenv(OPENAI_LIVEBENCH_REASONING_EFFORT, "none")
+
+    output, output_tokens, metadata = openai_chat_completion(
+        model="gpt-5.6-terra",
+        messages=[{"role": "user", "content": "Question"}],
+        temperature=0,
+        max_tokens=64,
+        model_api_kwargs={"top_p": 0.9},
+        api_dict={
+            "api_key": "not-written-to-artifacts",
+            "api_base": "https://api.openai.com/v1",
+        },
+    )
+
+    assert output == "$ERROR$"
+    assert output_tokens == 0
+    assert captured["client"]["max_retries"] == 0
+    assert captured["request"]["max_completion_tokens"] == 64
+    assert captured["request"]["reasoning_effort"] == "none"
+    assert captured["request"]["temperature"] == 0
+    assert captured["request"]["top_p"] == 0.9
+    assert metadata["actual_model"] is None
+    assert metadata["benchmark_error"] == {
+        "type": "RateLimitError",
+        "message": "request rejected",
+        "body": RateLimitError.body,
+        "status_code": 429,
+    }
+    assert metadata["benchmark_calls"][0]["request_id"] == (
+        "req-rate-limited"
+    )
+
+    logged = json.loads(log.read_text(encoding="utf-8"))
+    assert logged["run_id"] == "openai-failure-run"
+    assert logged["provider"] == "openai"
+    assert logged["request_id"] == "req-rate-limited"
+    assert logged["input_messages"] == [
+        {"role": "user", "content": "Question"}
+    ]
+    assert logged["request_parameters"] == {
+        "top_p": 0.9,
+        "max_completion_tokens": 64,
+        "reasoning_effort": "none",
+        "temperature": 0,
+    }
+    assert logged["output_text"] == "$ERROR$"
+    assert logged["latency_ms"] >= 0
+    assert logged["cost_usd"] is None
+    assert logged["cost_source"] == "unavailable_failed_request"
+    assert logged["will_retry"] is False
+    assert logged["transport_max_retries"] == 0
+    assert logged["transport_retry_attempt_count"] == 0
+    assert logged["transport_attempt_visibility"] == (
+        "one_logged_call_per_sdk_attempt"
+    )
+    assert logged["error"] == metadata["benchmark_error"]
+    assert "not-written-to-artifacts" not in log.read_text(encoding="utf-8")
+
+
+def test_openai_adapter_logs_invalid_response_with_usage(
+    monkeypatch, tmp_path
+):
+    response = SimpleNamespace(
+        id="chatcmpl-no-choice",
+        model="gpt-5.6-terra-2026-07-01",
+        choices=[],
+        usage=Dumpable(
+            {
+                "prompt_tokens": 12,
+                "completion_tokens": 3,
+                "prompt_tokens_details": {"cached_tokens": 2},
+            }
+        ),
+    )
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(
+                    create=lambda **request: response
+                )
+            )
+
+    monkeypatch.setattr(openai, "OpenAI", FakeOpenAI)
+    log = tmp_path / "invalid-openai-response.jsonl"
+    monkeypatch.setenv("KENDR_LIVEBENCH_CALL_LOG", str(log))
+
+    output, output_tokens, metadata = openai_chat_completion(
+        model="gpt-5.6-terra",
+        messages=[{"role": "user", "content": "Question"}],
+        temperature=0,
+        max_tokens=64,
+        api_dict={"api_key": "key"},
+    )
+
+    assert output == "$ERROR$"
+    assert output_tokens == 0
+    assert metadata["input_tokens"] == 12
+    assert metadata["cached_tokens"] == 2
+    assert metadata["actual_model"] == "gpt-5.6-terra-2026-07-01"
+    assert metadata["benchmark_error"]["message"] == (
+        "OpenAI returned no completion choices."
+    )
+
+    logged = json.loads(log.read_text(encoding="utf-8"))
+    assert logged["request_id"] == "chatcmpl-no-choice"
+    assert logged["actual_model"] == "gpt-5.6-terra-2026-07-01"
+    assert logged["usage_source"] == "provider_response"
+    assert logged["usage"]["completion_tokens"] == 3
+    assert logged["error"]["type"] == "RuntimeError"
 
 
 def test_kendr_adapter_records_provider_failure_without_aborting(
@@ -355,6 +506,10 @@ def test_kendr_adapter_retries_no_credit_failure_with_new_idempotency(
     ]
     assert metadata["kendr_calls"][0]["will_retry"] is True
     assert metadata["kendr_calls"][0]["retry_reason"] == "no_credits_charged"
+    assert metadata["kendr_calls"][0]["cost_usd"] == "0"
+    assert metadata["kendr_calls"][0]["cost_source"] == (
+        "provider_explicit_no_charge"
+    )
     assert metadata["kendr_calls"][1]["retry_attempt_count"] == 1
 
     logged = [
@@ -505,5 +660,7 @@ def test_kendr_adapter_reads_the_unwrapped_error_body_shape(
     assert logged["usage"]["completion_tokens"] == 4096
     assert logged["usage"]["prompt_tokens"] == 812
     assert logged["usage_source"] == "failed_attempt_provider_report"
-    # Uncharged, so it must still contribute no cost.
-    assert logged["cost_usd"] is None
+    # The provider explicitly says it was uncharged, so zero is known rather
+    # than an unknown lower bound.
+    assert logged["cost_usd"] == "0"
+    assert logged["cost_source"] == "provider_explicit_no_charge"

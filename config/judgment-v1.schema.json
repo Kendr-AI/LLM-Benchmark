@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kendr.ai/schemas/llm-benchmark-protocol/judgment-1.0.json",
+  "title": "LLM Benchmark Protocol judgment record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "schedule_id", "answer_id", "judgment_id", "grader_id", "grader_version", "score", "valid", "created_at"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "run_id": {"type": "string", "minLength": 1},
+    "schedule_id": {"type": "string", "minLength": 1},
+    "answer_id": {"type": "string", "minLength": 1},
+    "judgment_id": {"type": "string", "minLength": 1},
+    "grader_id": {"type": "string", "minLength": 1},
+    "grader_version": {"type": "string", "minLength": 1},
+    "grader_type": {"enum": ["objective", "model", "human", "hybrid"]},
+    "score": {"type": "number", "minimum": 0, "maximum": 1},
+    "valid": {"type": "boolean"},
+    "adjudication_id": {"type": ["string", "null"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "prompt_or_rubric_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+  }
+}

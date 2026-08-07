@@ -13,7 +13,7 @@ from .livebench_adapter import (
 )
 
 INSTRUCTION_FOLLOWING_COMPATIBILITY_PATCH = (
-    "livebench-4355e9b-if-unhashable-question-v1"
+    "livebench-4355e9b-if-unhashable-question-empty-jsonl-v2"
 )
 
 
@@ -43,6 +43,22 @@ def _run_grading_with_compatibility_patch(package_dir: Path) -> None:
             "was not found; refusing to patch an unknown grader revision."
         )
     source = source.replace(needle, replacement, 1)
+    reorg_needle = (
+        '        for l in fin:\n'
+        '            qid = json.loads(l)["question_id"]'
+    )
+    reorg_replacement = (
+        '        for l in fin:\n'
+        '            if not l.strip():\n'
+        '                continue\n'
+        '            qid = json.loads(l)["question_id"]'
+    )
+    if reorg_needle not in source:
+        raise RuntimeError(
+            "The pinned LiveBench JSONL reorganization compatibility target "
+            "was not found; refusing to patch an unknown grader revision."
+        )
+    source = source.replace(reorg_needle, reorg_replacement, 1)
     namespace = {
         "__name__": "__main__",
         "__file__": str(path),
@@ -54,7 +70,7 @@ def _run_grading_with_compatibility_patch(package_dir: Path) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="kendr-livebench-worker",
+        prog="llm-benchmark-livebench-worker",
         add_help=False,
     )
     parser.add_argument("--livebench-root", type=Path, required=True)

@@ -1,0 +1,317 @@
+[
+  {
+    "key": "kendr-intelligent",
+    "provider": "kendr",
+    "model": "kendr-intelligent",
+    "label": "Kendr Intelligent Auto",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kendr-research",
+    "provider": "kendr",
+    "model": "kendr-research",
+    "label": "Kendr Research Auto",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kendr-flash",
+    "provider": "kendr",
+    "model": "kendr-flash",
+    "label": "Kendr Flash",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-gpt-5.6-sol",
+    "provider": "kendr",
+    "model": "kc-gpt-5.6-sol",
+    "label": "GPT-5.6 Sol",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-gpt-5.6-terra",
+    "provider": "kendr",
+    "model": "kc-gpt-5.6-terra",
+    "label": "GPT-5.6 Terra",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-gpt-5.6-luna",
+    "provider": "kendr",
+    "model": "kc-gpt-5.6-luna",
+    "label": "GPT-5.6 Luna",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-claude-sonnet-5",
+    "provider": "kendr",
+    "model": "kc-claude-sonnet-5",
+    "label": "Claude Sonnet 5",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-claude-opus-4.8",
+    "provider": "kendr",
+    "model": "kc-claude-opus-4.8",
+    "label": "Claude Opus 4.8",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-nova-2-lite",
+    "provider": "kendr",
+    "model": "kc-nova-2-lite",
+    "label": "Amazon Nova 2 Lite",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-glm-5",
+    "provider": "kendr",
+    "model": "kc-glm-5",
+    "label": "GLM 5",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-deepseek-v3.2",
+    "provider": "kendr",
+    "model": "kc-deepseek-v3.2",
+    "label": "DeepSeek V3.2",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-deepseek-v4-flash",
+    "provider": "kendr",
+    "model": "kc-deepseek-v4-flash",
+    "label": "DeepSeek V4 Flash",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-gemini-3.5-flash",
+    "provider": "kendr",
+    "model": "kc-gemini-3.5-flash",
+    "label": "Gemini 3.5 Flash",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-gemini-3.1-pro-preview",
+    "provider": "kendr",
+    "model": "kc-gemini-3.1-pro-preview",
+    "label": "Gemini 3.1 Pro Preview",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-qwen3-next",
+    "provider": "kendr",
+    "model": "kc-qwen3-next",
+    "label": "Qwen3 Next 80B",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-kimi-k2.5",
+    "provider": "kendr",
+    "model": "kc-kimi-k2.5",
+    "label": "Kimi K2.5",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-llama-4-maverick",
+    "provider": "kendr",
+    "model": "kc-llama-4-maverick",
+    "label": "Llama 4 Maverick",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-llama-4-scout",
+    "provider": "kendr",
+    "model": "kc-llama-4-scout",
+    "label": "Llama 4 Scout",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-grok-4.5",
+    "provider": "kendr",
+    "model": "kc-grok-4.5",
+    "label": "Grok 4.5",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-bedrock-anthropic-claude-fable-5",
+    "provider": "kendr",
+    "model": "kc-bedrock-anthropic-claude-fable-5",
+    "label": "Claude Fable 5",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-bedrock-anthropic-claude-opus-4-8",
+    "provider": "kendr",
+    "model": "kc-bedrock-anthropic-claude-opus-4-8",
+    "label": "Claude Opus 4.8",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-bedrock-anthropic-claude-opus-5",
+    "provider": "kendr",
+    "model": "kc-bedrock-anthropic-claude-opus-5",
+    "label": "Claude Opus 5",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-bedrock-deepseek-r1-v1-0",
+    "provider": "kendr",
+    "model": "kc-bedrock-deepseek-r1-v1-0",
+    "label": "DeepSeek-R1",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-bedrock-google-gemma-3-12b-it",
+    "provider": "kendr",
+    "model": "kc-bedrock-google-gemma-3-12b-it",
+    "label": "Gemma 3 12B IT",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-bedrock-google-gemma-3-27b-it",
+    "provider": "kendr",
+    "model": "kc-bedrock-google-gemma-3-27b-it",
+    "label": "Gemma 3 27B PT",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-bedrock-meta-llama4-maverick-17b-instruct-v1-0",
+    "provider": "kendr",
+    "model": "kc-bedrock-meta-llama4-maverick-17b-instruct-v1-0",
+    "label": "Llama 4 Maverick 17B Instruct",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-bedrock-writer-palmyra-x4-v1-0",
+    "provider": "kendr",
+    "model": "kc-bedrock-writer-palmyra-x4-v1-0",
+    "label": "Palmyra X4",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-google-deep-research-max-preview-04-2026",
+    "provider": "kendr",
+    "model": "kc-google-deep-research-max-preview-04-2026",
+    "label": "Deep Research Max Preview (Apr-21-2026)",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-google-deep-research-preview-04-2026",
+    "provider": "kendr",
+    "model": "kc-google-deep-research-preview-04-2026",
+    "label": "Deep Research Preview (Apr-21-2026)",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-ollama-deepseek-v4-flash-0731",
+    "provider": "kendr",
+    "model": "kc-ollama-deepseek-v4-flash-0731",
+    "label": "deepseek-v4-flash:0731",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-ollama-gpt-oss-120b",
+    "provider": "kendr",
+    "model": "kc-ollama-gpt-oss-120b",
+    "label": "gpt-oss:120b",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-openai-gpt-5-3-codex",
+    "provider": "kendr",
+    "model": "kc-openai-gpt-5-3-codex",
+    "label": "gpt-5.3-codex",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-openai-gpt-5-5",
+    "provider": "kendr",
+    "model": "kc-openai-gpt-5-5",
+    "label": "gpt-5.5",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-openai-gpt-5-5-pro",
+    "provider": "kendr",
+    "model": "kc-openai-gpt-5-5-pro",
+    "label": "gpt-5.5-pro",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  },
+  {
+    "key": "kc-openai-o3-deep-research",
+    "provider": "kendr",
+    "model": "kc-openai-o3-deep-research",
+    "label": "o3-deep-research",
+    "access": "Kendr API catalog snapshot",
+    "license": "Provider/model terms - verify before external publication",
+    "license_source": "https://api.kendr.org"
+  }
+]
