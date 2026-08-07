@@ -171,17 +171,26 @@ def write_bundle(bundle: dict[str, Any], output_dir: Path, stem: str) -> list[Pa
     csv_path = output_dir / f"{stem}.csv"
     checksum_path = output_dir / "SHA256SUMS"
     json_path.write_text(
-        json.dumps(bundle, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        json.dumps(bundle, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+        newline="\n",
     )
     with csv_path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=PUBLIC_FIELDS, extrasaction="ignore")
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=PUBLIC_FIELDS,
+            extrasaction="ignore",
+            lineterminator="\n",
+        )
         writer.writeheader()
         writer.writerows(bundle["results"])
     checksum_lines = []
     for path in (csv_path, json_path):
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         checksum_lines.append(f"{digest}  {path.name}")
-    checksum_path.write_text("\n".join(checksum_lines) + "\n", encoding="ascii")
+    checksum_path.write_text(
+        "\n".join(checksum_lines) + "\n", encoding="ascii", newline="\n"
+    )
     return [json_path, csv_path, checksum_path]
 
 

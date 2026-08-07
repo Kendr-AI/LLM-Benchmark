@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -61,3 +62,22 @@ def test_public_bundle_rejects_incomplete_matrix():
             [],
             {"selected_entries": 2},
         )
+
+
+def test_write_bundle_is_platform_stable_and_checksums_stored_bytes(tmp_path: Path):
+    bundle = {"results": [_row(1, "fixed")]}
+
+    json_path, csv_path, checksum_path = MODULE.write_bundle(bundle, tmp_path, "pilot")
+
+    assert b"\r" not in json_path.read_bytes()
+    assert b"\r" not in csv_path.read_bytes()
+    checksum_entries = dict(
+        reversed(line.split("  ", 1))
+        for line in checksum_path.read_text(encoding="ascii").splitlines()
+    )
+    assert checksum_entries[json_path.name] == hashlib.sha256(
+        json_path.read_bytes()
+    ).hexdigest()
+    assert checksum_entries[csv_path.name] == hashlib.sha256(
+        csv_path.read_bytes()
+    ).hexdigest()
