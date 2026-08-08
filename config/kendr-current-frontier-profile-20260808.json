@@ -1,0 +1,124 @@
+{
+  "schema_version": "1.0",
+  "profile_id": "kendr-current-frontier-20260808",
+  "snapshot_date": "2026-08-08",
+  "ga_cohort_id": "core-ga",
+  "companion_cohort_id": "preview-companion",
+  "identity_policy": "Resolve exact catalog ids only. Display-name matches are advisory and never authorize route merging or automatic selection.",
+  "cohorts": [
+    {
+      "id": "core-ga",
+      "claim_class": "general-availability",
+      "claim_scope": "Current-frontier GA endpoints plus one declared benchmark baseline",
+      "entries": [
+        {
+          "key": "claude-opus-5",
+          "label": "Claude Opus 5",
+          "catalog_id": "kc-claude-opus-5",
+          "role": "candidate"
+        },
+        {
+          "key": "claude-fable-5",
+          "label": "Claude Fable 5",
+          "catalog_id": "kc-claude-fable-5",
+          "role": "candidate"
+        },
+        {
+          "key": "gpt-5-6-sol",
+          "label": "GPT-5.6 Sol",
+          "catalog_id": "kc-gpt-5.6-sol",
+          "role": "candidate"
+        },
+        {
+          "key": "kimi-k3",
+          "label": "Kimi K3",
+          "catalog_id": "kc-kimi-k3",
+          "role": "candidate",
+          "identity_note": "Canonical Kendr identity is staged; it remains ineligible until credentials, discovery, exact pricing, and a successful identity-resolved preflight are present."
+        },
+        {
+          "key": "muse-spark-1-2-standard",
+          "label": "Muse Spark 1.2 standard",
+          "expected_display_name": "Muse Spark 1.2",
+          "catalog_id": "kc-muse-spark-1.2",
+          "role": "candidate",
+          "identity_note": "Standard, non-contributor Meta route only. It remains ineligible until credentials, discovery, exact pricing, and a successful identity-resolved preflight are present."
+        },
+        {
+          "key": "grok-4-5",
+          "label": "Grok 4.5",
+          "catalog_id": "kc-grok-4.5",
+          "role": "candidate"
+        },
+        {
+          "key": "glm-5-2",
+          "label": "GLM 5.2",
+          "catalog_id": "kc-glm-5.2",
+          "role": "candidate"
+        },
+        {
+          "key": "deepseek-v4-flash-0731",
+          "label": "DeepSeek V4 Flash 0731",
+          "catalog_id": "kc-ollama-deepseek-v4-flash-0731",
+          "role": "candidate",
+          "identity_note": "Dated 0731 endpoint. Do not merge with the rolling kc-deepseek-v4-flash alias without route evidence."
+        },
+        {
+          "key": "deepseek-v4-pro",
+          "label": "DeepSeek V4 Pro",
+          "vendor_model_id": "deepseek-v4-pro",
+          "role": "candidate",
+          "coverage_only": true,
+          "coverage_status": "staged",
+          "n_a_reason": "Coverage target is staged without an exact executable Kendr catalog ID; report N/A until a canonical identity passes preflight.",
+          "identity_note": "Coverage-only identity. No Kendr catalog ID is asserted or invented."
+        },
+        {
+          "key": "qwen-3-7-max-2026-05-20",
+          "label": "Qwen 3.7 Max 2026-05-20",
+          "vendor_model_id": "qwen3.7-max-2026-05-20",
+          "role": "candidate",
+          "coverage_only": true,
+          "coverage_status": "staged",
+          "n_a_reason": "Text-only immutable coverage target is staged without an exact executable Kendr catalog ID; report N/A until a canonical identity passes preflight.",
+          "identity_note": "Coverage-only text snapshot. No Kendr catalog ID is asserted or invented."
+        },
+        {
+          "key": "gemini-3-6-flash",
+          "label": "Gemini 3.6 Flash",
+          "catalog_id": "kc-google-gemini-3-6-flash",
+          "role": "candidate"
+        },
+        {
+          "key": "gpt-5-5-baseline",
+          "label": "GPT-5.5 baseline",
+          "expected_display_name": "gpt-5.5",
+          "catalog_id": "kc-openai-gpt-5-5",
+          "role": "baseline",
+          "identity_note": "Benchmark baseline only; do not describe it as a current-frontier candidate."
+        }
+      ]
+    },
+    {
+      "id": "preview-companion",
+      "claim_class": "preview-or-limited-access",
+      "claim_scope": "Preview and limited-access companion; report separately from GA rankings",
+      "entries": [
+        {
+          "key": "qwen-3-8-max-preview",
+          "label": "Qwen 3.8 Max Preview",
+          "expected_display_name": "Qwen3.8 Max Preview",
+          "catalog_id": "kc-qwen3.8-max-preview",
+          "role": "candidate",
+          "identity_note": "Preview identifier supplied for the companion cohort."
+        },
+        {
+          "key": "gemini-3-1-pro-preview",
+          "label": "Gemini 3.1 Pro Preview",
+          "catalog_id": "kc-gemini-3.1-pro-preview",
+          "role": "candidate"
+        }
+      ]
+    }
+  ]
+}

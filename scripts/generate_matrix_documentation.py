@@ -120,6 +120,151 @@ MODEL_RESEARCH = {
 }
 
 
+# Current frontier panels use campaign-specific keys, so their research
+# profiles must be bound to the exact requested endpoint ID instead of a
+# display label or a conveniently similar panel key.  Keep this table
+# deliberately literal: aliases and dated backends can have different serving
+# behavior, limits, prices, and data-governance terms.
+MODEL_RESEARCH_BY_REQUESTED_MODEL = {
+    "kc-claude-opus-5": {
+        "architecture": "Undisclosed proprietary model",
+        "context": "1,000,000 tokens advertised by Anthropic",
+        "max_output": "128,000 tokens advertised by Anthropic",
+        "knowledge": "May 2026 cutoff",
+        "modes": "Text and image input; adaptive reasoning; tools",
+        "pricing": (
+            "Kendr-managed Amazon Bedrock route; use captured Kendr call "
+            "telemetry for campaign cost"
+        ),
+        "source": (
+            "https://platform.claude.com/docs/en/about-claude/models/"
+            "whats-new-opus-5"
+        ),
+        "notes": (
+            "Exact Kendr canonical alias. Do not pool it with retired "
+            "Bedrock aliases or a direct Anthropic endpoint."
+        ),
+    },
+    "kc-gpt-5.6-sol": {
+        "architecture": "Undisclosed proprietary model",
+        "context": "1,050,000 tokens",
+        "max_output": "128,000 tokens",
+        "knowledge": "February 16, 2026 cutoff",
+        "modes": "Configurable reasoning; text and image input; tools",
+        "pricing": (
+            "$5/M input, $0.50/M cached input, $30/M output at OpenAI "
+            "list price"
+        ),
+        "source": (
+            "https://developers.openai.com/api/docs/models/gpt-5.6-sol"
+        ),
+        "notes": (
+            "Exact Kendr managed alias; report the campaign's explicit "
+            "reasoning effort and captured route metadata."
+        ),
+    },
+    "kc-grok-4.5": {
+        "architecture": "Undisclosed proprietary model",
+        "context": "500,000 tokens",
+        "max_output": "Route-dependent; freeze the served endpoint limit",
+        "knowledge": "Not stated in the cited model page",
+        "modes": "Text and image input; reasoning effort low through high",
+        "pricing": (
+            "Kendr-managed xAI route; use captured Kendr call telemetry for "
+            "campaign cost"
+        ),
+        "source": "https://docs.x.ai/developers/models/grok-4.5",
+        "notes": (
+            "Exact Kendr managed alias; reasoning effort is part of the "
+            "benchmark configuration."
+        ),
+    },
+    "kc-ollama-deepseek-v4-flash-0731": {
+        "architecture": "Open-weight mixture-of-experts model",
+        "context": "1,000,000 tokens advertised for DeepSeek V4 Flash",
+        "max_output": "Up to 384,000 tokens on the vendor API path",
+        "knowledge": "Not stated",
+        "modes": "Text; thinking and non-thinking modes",
+        "pricing": (
+            "Kendr-managed dated Ollama route; use captured Kendr call "
+            "telemetry for campaign cost"
+        ),
+        "source": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash",
+        "notes": (
+            "The 0731 suffix identifies the exact Kendr-served backend. Do "
+            "not merge it with the rolling DeepSeek API alias without "
+            "provider-returned identity evidence."
+        ),
+    },
+    "kc-google-gemini-3-6-flash": {
+        "architecture": "Undisclosed proprietary model",
+        "context": "1,048,576 tokens",
+        "max_output": "65,536 tokens",
+        "knowledge": "Not stated in the cited model page",
+        "modes": (
+            "Text, image, video, audio, and PDF input; text output; tools"
+        ),
+        "pricing": (
+            "Kendr-managed Google route; use captured Kendr call telemetry "
+            "for campaign cost"
+        ),
+        "source": (
+            "https://ai.google.dev/gemini-api/docs/models/"
+            "gemini-3.6-flash"
+        ),
+        "notes": (
+            "Exact Kendr Google alias; do not pool it with Gemini preview "
+            "or rolling aliases."
+        ),
+    },
+    "kc-openai-gpt-5-5": {
+        "architecture": "Undisclosed proprietary model",
+        "context": "Freeze from the exact served endpoint for the campaign",
+        "max_output": "Freeze from the exact served endpoint for the campaign",
+        "knowledge": "See the cited exact-model page",
+        "modes": "Configurable reasoning from none through xhigh; tools",
+        "pricing": (
+            "Kendr-managed OpenAI route; use captured Kendr call telemetry "
+            "for campaign cost"
+        ),
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.5",
+        "notes": (
+            "Exact Kendr managed alias retained as a declared historical "
+            "baseline, not a current-frontier candidate."
+        ),
+    },
+}
+
+
+UNKNOWN_MODEL_RESEARCH = {
+    "architecture": "Not researched",
+    "context": "Not researched",
+    "max_output": "Not researched",
+    "knowledge": "Not researched",
+    "modes": "Not researched",
+    "pricing": "Not researched",
+    "source": "n/a",
+    "notes": "No curated research entry for this panel key.",
+}
+
+
+def model_research_for_spec(spec: dict[str, Any]) -> dict[str, str]:
+    """Resolve research without guessing across model identities.
+
+    Current frontier entries are selected only by an exact requested-model
+    match.  The panel-key fallback preserves reports for the historical pilot,
+    whose curated profiles predate exact endpoint-ID mappings.  Deliberately do
+    not normalize case, trim suffixes, or perform fuzzy matching here.
+    """
+
+    exact = MODEL_RESEARCH_BY_REQUESTED_MODEL.get(str(spec.get("model", "")))
+    if exact is not None:
+        return exact
+    return MODEL_RESEARCH.get(
+        str(spec.get("key", "")), UNKNOWN_MODEL_RESEARCH
+    )
+
+
 def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -1535,19 +1680,9 @@ def methodology_document(
     manifest: dict[str, Any],
     panel: dict[str, dict[str, Any]],
 ) -> str:
-    unknown = {
-        "architecture": "Not researched",
-        "context": "Not researched",
-        "max_output": "Not researched",
-        "knowledge": "Not researched",
-        "modes": "Not researched",
-        "pricing": "Not researched",
-        "source": "n/a",
-        "notes": "No curated research entry for this panel key.",
-    }
     research_rows = []
     for spec in manifest["models"]:
-        research = MODEL_RESEARCH.get(spec["key"], unknown)
+        research = model_research_for_spec(spec)
         research_rows.append(
             [
                 spec["label"],
@@ -1561,7 +1696,7 @@ def methodology_document(
         )
     profile_sections = []
     for spec in manifest["models"]:
-        research = MODEL_RESEARCH.get(spec["key"], unknown)
+        research = model_research_for_spec(spec)
         profile_sections.extend(
             [
                 f"### {spec['label']}",

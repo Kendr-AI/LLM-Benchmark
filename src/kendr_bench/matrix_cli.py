@@ -5,7 +5,9 @@ import csv
 import itertools
 import json
 import os
+import re
 import shutil
+import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -13,6 +15,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from . import __version__
 from .cli import load_environment
 from .livebench_cli import (
     DEFAULT_LIVEBENCH_ROOT,
@@ -48,6 +51,69 @@ DEFAULT_MATRIX_TASKS = (
     "live_bench/math/math_comp",
     "live_bench/reasoning/zebra_puzzle",
 )
+
+SOURCE_PACKAGE = "llm-benchmark-protocol"
+SOURCE_REPOSITORY = "https://github.com/Kendr-AI/LLM-Benchmark"
+
+
+def _git_text(root: Path, *args: str) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(root), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.strip()
+
+
+def _execution_software_provenance(root: Path | None = None) -> dict[str, Any]:
+    """Capture the exact source revision and deterministic dirty-worktree bit.
+
+    A dirty checkout is valid execution evidence and is recorded rather than
+    rejected. A missing Git identity is different: without a commit the
+    campaign cannot provide the required source lineage, so matrix creation
+    fails before any provider calls are made.
+    """
+
+    candidates = [root] if root is not None else [
+        Path(__file__).resolve().parents[2],
+        Path.cwd(),
+    ]
+    inspected: set[Path] = set()
+    failures: list[str] = []
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        resolved = candidate.resolve()
+        if resolved in inspected:
+            continue
+        inspected.add(resolved)
+        try:
+            repository_root = Path(
+                _git_text(resolved, "rev-parse", "--show-toplevel")
+            ).resolve()
+            commit = _git_text(repository_root, "rev-parse", "HEAD")
+            if not re.fullmatch(r"[0-9a-f]{40,64}", commit):
+                raise RuntimeError(f"unexpected Git commit format {commit!r}")
+            status = _git_text(
+                repository_root,
+                "status",
+                "--porcelain=v1",
+                "--untracked-files=normal",
+            )
+            return {
+                "package": SOURCE_PACKAGE,
+                "version": __version__,
+                "source_repository": SOURCE_REPOSITORY,
+                "source_commit": commit,
+                "source_worktree_dirty": bool(status),
+            }
+        except (OSError, subprocess.CalledProcessError, RuntimeError) as exc:
+            failures.append(f"{resolved}: {exc}")
+    raise RuntimeError(
+        "Unable to capture benchmark source commit before matrix execution. "
+        + "; ".join(failures)
+    )
 
 
 def _unit_interval(value: str) -> float:
@@ -1311,6 +1377,7 @@ def run_matrix(args: argparse.Namespace) -> Path:
             "The multi-model matrix is chargeable. Re-run with "
             "--confirm-paid-run after reviewing the selected panel and sample."
         )
+    execution_software = _execution_software_provenance()
     load_environment(args.env_file, disabled=args.no_env_file)
     panel = _selected_panel(args.include, getattr(args, "panel_file", None))
     tasks = tuple(args.tasks or DEFAULT_MATRIX_TASKS)
@@ -1343,6 +1410,7 @@ def run_matrix(args: argparse.Namespace) -> Path:
     manifest = {
         "matrix_id": matrix_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "execution_software": execution_software,
         "models": [asdict(model) for model in panel],
         "livebench_release": args.release,
         "tasks": tasks,

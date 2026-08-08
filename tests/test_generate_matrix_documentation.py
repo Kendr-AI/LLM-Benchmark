@@ -205,6 +205,80 @@ def _spec(key: str, model: str, label: str) -> dict[str, Any]:
     }
 
 
+@pytest.mark.parametrize(
+    ("requested_model", "source_fragment"),
+    [
+        ("kc-claude-opus-5", "claude/models/whats-new-opus-5"),
+        ("kc-gpt-5.6-sol", "models/gpt-5.6-sol"),
+        ("kc-grok-4.5", "models/grok-4.5"),
+        (
+            "kc-ollama-deepseek-v4-flash-0731",
+            "deepseek-ai/DeepSeek-V4-Flash",
+        ),
+        ("kc-google-gemini-3-6-flash", "models/gemini-3.6-flash"),
+        ("kc-openai-gpt-5-5", "models/gpt-5.5"),
+    ],
+)
+def test_frontier_research_resolves_by_exact_requested_model(
+    generator, requested_model, source_fragment
+):
+    research = generator.model_research_for_spec(
+        _spec("campaign-key-with-no-research-profile", requested_model, "Model")
+    )
+
+    assert source_fragment in research["source"]
+    assert research["architecture"] != "Not researched"
+
+
+def test_frontier_research_exact_id_wins_over_historical_panel_key(generator):
+    research = generator.model_research_for_spec(
+        _spec("openai-sol", "kc-grok-4.5", "Grok 4.5")
+    )
+
+    assert research["source"] == "https://docs.x.ai/developers/models/grok-4.5"
+
+
+def test_model_research_keeps_historical_key_fallback_without_fuzzy_ids(
+    generator,
+):
+    historical = generator.model_research_for_spec(
+        _spec("glm-5", "legacy-kendr-glm-endpoint", "GLM-5")
+    )
+    near_match = generator.model_research_for_spec(
+        _spec("new-campaign-key", "kc-grok-4.5-preview", "Grok preview")
+    )
+
+    assert historical is generator.MODEL_RESEARCH["glm-5"]
+    assert near_match is generator.UNKNOWN_MODEL_RESEARCH
+
+
+def test_generator_renders_exact_frontier_research_for_campaign_key(
+    generator, tmp_path, monkeypatch
+):
+    root = tmp_path / "matrix"
+    model = _spec(
+        "grok-4-5-kendr-default",
+        "kc-grok-4.5",
+        "Grok 4.5 (Kendr served default)",
+    )
+    _build_matrix(root, [model])
+    _write_run(
+        root / "runs",
+        key="grok",
+        requested_model="kc-grok-4.5",
+        scores=[("q1", "math", 1.0)],
+    )
+
+    monkeypatch.setattr("sys.argv", ["generate", str(root)])
+    assert generator.main() == 0
+
+    methodology = (
+        root / "methodology-and-model-documentation.md"
+    ).read_text(encoding="utf-8")
+    assert "https://docs.x.ai/developers/models/grok-4.5" in methodology
+    assert "Architecture/parameters: Not researched" not in methodology
+
+
 def test_generator_runs_on_a_subset_without_the_baseline_model(
     generator, tmp_path, monkeypatch, capsys
 ):

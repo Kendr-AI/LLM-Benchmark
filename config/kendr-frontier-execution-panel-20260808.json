@@ -1,0 +1,56 @@
+[
+  {
+    "key": "claude-opus-5-kendr-default",
+    "provider": "kendr",
+    "model": "kc-claude-opus-5",
+    "label": "Claude Opus 5 (Kendr served default)",
+    "access": "Kendr API canonical Amazon Bedrock US inference-profile route",
+    "license": "Proprietary provider terms",
+    "license_source": "https://www.anthropic.com/legal/commercial-terms"
+  },
+  {
+    "key": "gpt-5-6-sol-kendr-default",
+    "provider": "kendr",
+    "model": "kc-gpt-5.6-sol",
+    "label": "GPT-5.6 Sol (Kendr served default)",
+    "access": "Kendr API managed OpenAI route",
+    "license": "Proprietary provider terms",
+    "license_source": "https://openai.com/policies/business-terms/"
+  },
+  {
+    "key": "grok-4-5-kendr-default",
+    "provider": "kendr",
+    "model": "kc-grok-4.5",
+    "label": "Grok 4.5 (Kendr served default)",
+    "access": "Kendr API managed xAI route",
+    "license": "Proprietary provider terms",
+    "license_source": "https://x.ai/legal/terms-of-service"
+  },
+  {
+    "key": "deepseek-v4-flash-0731-kendr-default",
+    "provider": "kendr",
+    "model": "kc-ollama-deepseek-v4-flash-0731",
+    "label": "DeepSeek V4 Flash 0731 (Kendr served default)",
+    "access": "Kendr API managed dated Ollama route",
+    "license": "MIT-licensed weights; serving terms remain applicable",
+    "license_source": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash"
+  },
+  {
+    "key": "gemini-3-6-flash-kendr-default",
+    "provider": "kendr",
+    "model": "kc-google-gemini-3-6-flash",
+    "label": "Gemini 3.6 Flash (Kendr served default)",
+    "access": "Kendr API managed Google route",
+    "license": "Proprietary provider terms",
+    "license_source": "https://ai.google.dev/gemini-api/terms"
+  },
+  {
+    "key": "gpt-5-5-kendr-baseline",
+    "provider": "kendr",
+    "model": "kc-openai-gpt-5-5",
+    "label": "GPT-5.5 (Kendr served baseline)",
+    "access": "Kendr API managed OpenAI route; declared historical baseline",
+    "license": "Proprietary provider terms",
+    "license_source": "https://openai.com/policies/business-terms/"
+  }
+]

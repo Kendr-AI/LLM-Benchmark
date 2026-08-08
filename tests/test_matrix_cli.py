@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import subprocess
 
 import pytest
+
+import kendr_bench.matrix_cli as matrix_cli
 
 from kendr_bench.matrix_cli import (
     DEFAULT_MATRIX_TASKS,
@@ -12,10 +15,122 @@ from kendr_bench.matrix_cli import (
     _question_scores,
     _require_complete_panel,
     _ranking_key,
+    _execution_software_provenance,
     _selected_panel,
     _select_rebuild_run,
     _write_leaderboard,
 )
+
+
+def _git(root, *args: str) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(root), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.strip()
+
+
+def test_execution_software_provenance_records_commit_and_dirty_boolean(tmp_path):
+    _git(tmp_path, "init")
+    _git(tmp_path, "config", "user.email", "benchmark@example.invalid")
+    _git(tmp_path, "config", "user.name", "Benchmark Test")
+    (tmp_path / "tracked.txt").write_text("frozen\n", encoding="utf-8")
+    _git(tmp_path, "add", "tracked.txt")
+    _git(tmp_path, "commit", "-m", "initial")
+
+    clean = _execution_software_provenance(tmp_path)
+    assert clean["package"] == "llm-benchmark-protocol"
+    assert clean["version"] == "1.0.2"
+    assert clean["source_commit"] == _git(tmp_path, "rev-parse", "HEAD")
+    assert clean["source_worktree_dirty"] is False
+
+    (tmp_path / "uncommitted.txt").write_text("dirty\n", encoding="utf-8")
+    dirty = _execution_software_provenance(tmp_path)
+    assert dirty["source_commit"] == clean["source_commit"]
+    assert dirty["source_worktree_dirty"] is True
+
+
+def test_execution_software_provenance_fails_without_a_source_commit(tmp_path):
+    with pytest.raises(RuntimeError, match="source commit"):
+        _execution_software_provenance(tmp_path)
+
+
+def test_preflight_matrix_manifest_records_execution_software(
+    tmp_path, monkeypatch
+):
+    panel_path = tmp_path / "panel.json"
+    panel_path.write_text(
+        json.dumps(
+            [
+                {
+                    "key": "candidate",
+                    "provider": "kendr",
+                    "model": "kc-candidate",
+                    "label": "Candidate",
+                    "access": "Kendr",
+                    "license": "Provider terms",
+                    "license_source": "https://example.com/terms",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    expected = {
+        "package": "llm-benchmark-protocol",
+        "version": "1.0.2",
+        "source_repository": "https://github.com/Kendr-AI/LLM-Benchmark",
+        "source_commit": "d" * 40,
+        "source_worktree_dirty": True,
+    }
+
+    class Sampling:
+        selected_ids = ("q1",)
+
+        @staticmethod
+        def to_dict():
+            return {
+                "mode": "seeded-random",
+                "seed": 20260807,
+                "selected_ids": ["q1"],
+                "content_hash": "e" * 64,
+                "content_hash_algorithm": "sha256",
+            }
+
+    monkeypatch.setattr(
+        matrix_cli, "_execution_software_provenance", lambda: expected
+    )
+    monkeypatch.setattr(matrix_cli, "load_environment", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        matrix_cli,
+        "load_livebench_question_records",
+        lambda *args, **kwargs: [
+            {
+                "question_id": "q1",
+                "category": "reasoning",
+                "task": "zebra_puzzle",
+                "livebench_release_date": "2024-11-25",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        matrix_cli, "select_question_ids", lambda *args, **kwargs: Sampling()
+    )
+    args = matrix_cli._build_parser().parse_args(
+        [
+            "--preflight-only",
+            "--panel-file",
+            str(panel_path),
+            "--output",
+            str(tmp_path / "matrix-output"),
+        ]
+    )
+
+    root = matrix_cli.run_matrix(args)
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+
+    assert manifest["execution_software"] == expected
 
 
 def test_default_matrix_is_stratified_and_contains_open_weight_models():
