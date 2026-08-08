@@ -10,3 +10,16 @@ condition = "AND"
 regexTarget = "line"
 regexes = ['''^\s*"key":\s*"kc-[A-Za-z0-9_.:-]+",?\s*$''']
 paths = ['''^config/kendr-catalog-text-panel-20260807\.json$''']
+
+# These are public benchmark panel identifiers, not credentials. Keep the
+# exception constrained to the exact rule, file, and values so new
+# credential-like material elsewhere remains detectable.
+[[allowlists]]
+description = "Kendr served-default benchmark panel identifiers"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+regexes = [
+  '''^\s*"key":\s*"(?:claude-opus-5|gpt-5-6-sol|grok-4-5)-kendr-default",?\s*$''',
+]
+paths = ['''^config/kendr-frontier-execution-panel-20260808\.json$''']
