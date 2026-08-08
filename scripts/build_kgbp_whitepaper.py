@@ -19,7 +19,6 @@ from typing import Any, Iterable
 
 from reportlab.graphics.charts.barcharts import HorizontalBarChart
 from reportlab.graphics.shapes import Drawing, String
-from reportlab.lib import colors
 from reportlab.lib.colors import HexColor
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
@@ -47,18 +46,17 @@ from reportlab.platypus import (
 from reportlab.platypus.tableofcontents import TableOfContents
 
 
-NAVY = HexColor("#11233F")
-BLUE = HexColor("#1666D9")
-CYAN = HexColor("#20A4B8")
-INK = HexColor("#1C2430")
-MUTED = HexColor("#596579")
-PALE = HexColor("#EDF4FC")
-PALE_CYAN = HexColor("#E9F8F8")
-LINE = HexColor("#D2DCE9")
-AMBER = HexColor("#B26A00")
-PALE_AMBER = HexColor("#FFF4DC")
-BRAND_PAPER = HexColor("#FAF8F4")
-WHITE = colors.white
+# Official Kendr palette. Derived tones are sRGB blends of the official colors
+# chosen to keep small text above WCAG AA contrast on the warm Paper canvas.
+INK = HexColor("#151412")
+SAFFRON = HexColor("#E2712A")
+PAPER = HexColor("#FAF8F4")
+WARM_GREY = HexColor("#8A8378")
+DEEP_SAFFRON = HexColor("#9A5022")
+MUTED_INK = HexColor("#615C54")
+PALE_SAFFRON = HexColor("#F6E4D6")
+PALE_WARM = HexColor("#EFECE8")
+COVER_GRID = HexColor("#383531")
 DEFAULT_LOGO_PATH = (
     Path(__file__).resolve().parents[1]
     / "assets"
@@ -503,7 +501,11 @@ def _inline(text: str) -> str:
     text = re.sub(r"`([^`]+)`", r'<font name="Courier">\1</font>', text)
     text = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", text)
     text = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<i>\1</i>", text)
-    text = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r'<a color="#1666D9" href="\2">\1</a>', text)
+    text = re.sub(
+        r"\[([^\]]+)\]\((https?://[^)]+)\)",
+        r'<u><a color="#9A5022" href="\2">\1</a></u>',
+        text,
+    )
     return text
 
 
@@ -550,27 +552,27 @@ def _styles() -> dict[str, ParagraphStyle]:
     return {
         "title": ParagraphStyle(
             "KGBPTitle", parent=samples["Title"], fontName=bold, fontSize=29, leading=33,
-            textColor=WHITE, alignment=TA_LEFT, spaceAfter=8 * mm,
+            textColor=PAPER, alignment=TA_LEFT, spaceAfter=8 * mm,
         ),
         "subtitle": ParagraphStyle(
             "KGBPSubtitle", parent=samples["Normal"], fontName=regular, fontSize=13.2, leading=18,
-            textColor=HexColor("#DCEBFF"), alignment=TA_LEFT,
+            textColor=PAPER, alignment=TA_LEFT,
         ),
         "covermeta": ParagraphStyle(
             "KGBPCoverMeta", parent=samples["Normal"], fontName=regular, fontSize=9.5, leading=14,
-            textColor=HexColor("#BDCCE2"),
+            textColor=WARM_GREY,
         ),
         "h1": ParagraphStyle(
             "KGBPH1", parent=samples["Heading1"], fontName=bold, fontSize=18, leading=22,
-            textColor=NAVY, spaceBefore=6 * mm, spaceAfter=3.2 * mm, keepWithNext=True,
+            textColor=INK, spaceBefore=6 * mm, spaceAfter=3.2 * mm, keepWithNext=True,
         ),
         "h2": ParagraphStyle(
             "KGBPH2", parent=samples["Heading2"], fontName=bold, fontSize=13.2, leading=17,
-            textColor=BLUE, spaceBefore=4.5 * mm, spaceAfter=2.2 * mm, keepWithNext=True,
+            textColor=DEEP_SAFFRON, spaceBefore=4.5 * mm, spaceAfter=2.2 * mm, keepWithNext=True,
         ),
         "h3": ParagraphStyle(
             "KGBPH3", parent=samples["Heading3"], fontName=bold, fontSize=10.8, leading=14,
-            textColor=HexColor("#0B6875"), spaceBefore=3.2 * mm, spaceAfter=1.6 * mm, keepWithNext=True,
+            textColor=MUTED_INK, spaceBefore=3.2 * mm, spaceAfter=1.6 * mm, keepWithNext=True,
         ),
         "body": ParagraphStyle(
             "KGBPBody", parent=samples["BodyText"], fontName=regular, fontSize=9.05, leading=13.1,
@@ -578,18 +580,18 @@ def _styles() -> dict[str, ParagraphStyle]:
         ),
         "small": ParagraphStyle(
             "KGBPSmall", parent=samples["BodyText"], fontName=regular, fontSize=7.4, leading=9.7,
-            textColor=MUTED, spaceAfter=1.5 * mm,
+            textColor=MUTED_INK, spaceAfter=1.5 * mm,
         ),
         "quote": ParagraphStyle(
             "KGBPQuote", parent=samples["BodyText"], fontName=italic, fontSize=8.5, leading=12,
-            textColor=MUTED, leftIndent=7 * mm, rightIndent=5 * mm, borderColor=CYAN,
+            textColor=MUTED_INK, leftIndent=7 * mm, rightIndent=5 * mm, borderColor=SAFFRON,
             borderWidth=1.8, borderPadding=(2 * mm, 3 * mm, 2 * mm, 4 * mm),
-            backColor=PALE_CYAN, spaceBefore=1.5 * mm, spaceAfter=2.5 * mm,
+            backColor=PALE_SAFFRON, spaceBefore=1.5 * mm, spaceAfter=2.5 * mm,
         ),
         "code": ParagraphStyle(
             "KGBPCode", parent=samples["Code"], fontName="Courier", fontSize=7, leading=9.3,
-            textColor=HexColor("#243145"), backColor=HexColor("#F3F6F9"),
-            borderColor=LINE, borderWidth=0.5, borderPadding=3 * mm, leftIndent=1 * mm,
+            textColor=INK, backColor=PALE_WARM,
+            borderColor=WARM_GREY, borderWidth=0.5, borderPadding=3 * mm, leftIndent=1 * mm,
             rightIndent=1 * mm, spaceBefore=1.5 * mm, spaceAfter=2.5 * mm,
         ),
         "table": ParagraphStyle(
@@ -598,19 +600,19 @@ def _styles() -> dict[str, ParagraphStyle]:
         ),
         "table_header": ParagraphStyle(
             "KGBPTableHeader", parent=samples["BodyText"], fontName=bold, fontSize=6.8, leading=8.4,
-            textColor=WHITE,
+            textColor=PAPER,
         ),
         "toc_h": ParagraphStyle(
             "KGBPTOCHeading", parent=samples["Heading1"], fontName=bold, fontSize=22, leading=26,
-            textColor=NAVY, spaceAfter=8 * mm,
+            textColor=INK, spaceAfter=8 * mm,
         ),
         "toc1": ParagraphStyle(
             "KGBPTOC1", parent=samples["Normal"], fontName=bold, fontSize=9, leading=12,
-            textColor=NAVY, leftIndent=0, firstLineIndent=0, spaceBefore=1.2 * mm,
+            textColor=INK, leftIndent=0, firstLineIndent=0, spaceBefore=1.2 * mm,
         ),
         "toc2": ParagraphStyle(
             "KGBPTOC2", parent=samples["Normal"], fontName=regular, fontSize=7.8, leading=10,
-            textColor=MUTED, leftIndent=5 * mm, firstLineIndent=0,
+            textColor=MUTED_INK, leftIndent=5 * mm, firstLineIndent=0,
         ),
     }
 
@@ -648,21 +650,23 @@ class KGBPDocTemplate(BaseDocTemplate):
 def _cover(canvas: Any, doc: BaseDocTemplate) -> None:
     canvas.saveState()
     width, height = A4
-    canvas.setFillColor(NAVY)
+    canvas.setFillColor(INK)
     canvas.rect(0, 0, width, height, fill=1, stroke=0)
-    canvas.setFillColor(BLUE)
+    canvas.setFillColor(SAFFRON)
     canvas.rect(0, 0, 15 * mm, height, fill=1, stroke=0)
-    canvas.setFillColor(CYAN)
+    canvas.setFillColor(PAPER)
     canvas.rect(15 * mm, 0, 2.2 * mm, height, fill=1, stroke=0)
-    canvas.setStrokeColor(HexColor("#315477"))
+    canvas.setStrokeColor(COVER_GRID)
     canvas.setLineWidth(0.5)
     for y in range(24, 285, 18):
         canvas.line(28 * mm, y * mm, 195 * mm, y * mm)
     logo_path = getattr(doc, "kendr_logo_path", None)
     if not logo_path:
         raise RuntimeError("Kendr logo path was not attached to the PDF document")
-    canvas.setFillColor(BRAND_PAPER)
-    canvas.roundRect(162 * mm, 252 * mm, 30 * mm, 30 * mm, 3 * mm, fill=1, stroke=0)
+    canvas.setFillColor(PAPER)
+    canvas.setStrokeColor(SAFFRON)
+    canvas.setLineWidth(0.8)
+    canvas.roundRect(162 * mm, 252 * mm, 30 * mm, 30 * mm, 3 * mm, fill=1, stroke=1)
     canvas.drawImage(
         logo_path,
         167 * mm,
@@ -679,17 +683,19 @@ def _cover(canvas: Any, doc: BaseDocTemplate) -> None:
 def _body_page(canvas: Any, doc: BaseDocTemplate) -> None:
     canvas.saveState()
     width, height = A4
-    canvas.setFillColor(NAVY)
+    canvas.setFillColor(PAPER)
+    canvas.rect(0, 0, width, height, fill=1, stroke=0)
+    canvas.setFillColor(INK)
     canvas.rect(0, height - 13 * mm, width, 13 * mm, fill=1, stroke=0)
     canvas.setFont("Helvetica-Bold", 7.4)
-    canvas.setFillColor(WHITE)
+    canvas.setFillColor(PAPER)
     canvas.drawString(18 * mm, height - 8.1 * mm, "LLM BENCHMARK PROTOCOL 1.0  |  KGBP 1.0 REFERENCE PROFILE")
-    canvas.setFillColor(CYAN)
+    canvas.setFillColor(SAFFRON)
     canvas.rect(0, height - 13.8 * mm, width, 0.8 * mm, fill=1, stroke=0)
-    canvas.setStrokeColor(LINE)
+    canvas.setStrokeColor(WARM_GREY)
     canvas.line(18 * mm, 13 * mm, width - 18 * mm, 13 * mm)
     canvas.setFont("Helvetica", 7.2)
-    canvas.setFillColor(MUTED)
+    canvas.setFillColor(MUTED_INK)
     canvas.drawString(18 * mm, 8.2 * mm, "Kendr - technical proposal - evidence-qualified reporting")
     canvas.drawRightString(width - 18 * mm, 8.2 * mm, f"{doc.page}")
     canvas.restoreState()
@@ -733,22 +739,23 @@ def _make_table(rows: list[list[str]], styles: dict[str, ParagraphStyle], availa
 
     table = Table(wrapped, colWidths=widths, repeatRows=1, hAlign="LEFT")
     commands: list[tuple[Any, ...]] = [
-        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
-        ("TEXTCOLOR", (0, 0), (-1, 0), WHITE),
+        ("BACKGROUND", (0, 0), (-1, 0), INK),
+        ("TEXTCOLOR", (0, 0), (-1, 0), PAPER),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 2.2 * mm),
         ("RIGHTPADDING", (0, 0), (-1, -1), 2.2 * mm),
         ("TOPPADDING", (0, 0), (-1, -1), 1.6 * mm),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 1.6 * mm),
-        ("GRID", (0, 0), (-1, -1), 0.35, LINE),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [WHITE, HexColor("#F6F9FC")]),
+        ("GRID", (0, 0), (-1, -1), 0.35, WARM_GREY),
+        ("LINEBELOW", (0, 0), (-1, 0), 1.2, SAFFRON),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [PAPER, PALE_WARM]),
     ]
     if "rank" in header_text:
         commands.extend(
             [
                 ("ALIGN", (0, 1), (0, -1), "RIGHT"),
-                ("BACKGROUND", (0, 1), (0, min(3, len(wrapped) - 1)), PALE_AMBER),
-                ("TEXTCOLOR", (0, 1), (0, min(3, len(wrapped) - 1)), AMBER),
+                ("BACKGROUND", (0, 1), (0, min(3, len(wrapped) - 1)), PALE_SAFFRON),
+                ("TEXTCOLOR", (0, 1), (0, min(3, len(wrapped) - 1)), DEEP_SAFFRON),
             ]
         )
     table.setStyle(TableStyle(commands))
@@ -772,16 +779,20 @@ def _ranking_chart(results: list[dict[str, Any]], styles: dict[str, ParagraphSty
     chart.categoryAxis.labels.fontName = styles["small"].fontName
     chart.categoryAxis.labels.fontSize = 6.5
     chart.categoryAxis.labels.dx = -4
+    chart.categoryAxis.labels.fillColor = INK
+    chart.categoryAxis.strokeColor = WARM_GREY
     chart.valueAxis.valueMin = 0
     chart.valueAxis.valueMax = max(100, (max(values) // 10 + 1) * 10)
     chart.valueAxis.valueStep = 10
     chart.valueAxis.labels.fontSize = 6.5
+    chart.valueAxis.labels.fillColor = INK
     chart.valueAxis.labelTextFormat = "%d%%"
-    chart.bars[0].fillColor = BLUE
-    chart.bars[0].strokeColor = BLUE
+    chart.valueAxis.strokeColor = WARM_GREY
+    chart.bars[0].fillColor = SAFFRON
+    chart.bars[0].strokeColor = DEEP_SAFFRON
     chart.barWidth = 8
     drawing.add(chart)
-    drawing.add(String(160, 198, "Catalog goodput index - cross-type, descriptive only", fontName=styles["h3"].fontName, fontSize=9, fillColor=NAVY))
+    drawing.add(String(160, 198, "Catalog goodput index - cross-type, descriptive only", fontName=styles["h3"].fontName, fontSize=9, fillColor=INK))
     return drawing
 
 
@@ -870,7 +881,7 @@ def _markdown_story(
             continue
         if re.match(r"^[-*_]{3,}$", stripped):
             flush_paragraph()
-            story.append(HRFlowable(width="100%", thickness=0.6, color=LINE, spaceBefore=2 * mm, spaceAfter=3 * mm))
+            story.append(HRFlowable(width="100%", thickness=0.6, color=WARM_GREY, spaceBefore=2 * mm, spaceAfter=3 * mm))
             index += 1
             continue
         if stripped.startswith(">"):
@@ -897,7 +908,7 @@ def _markdown_story(
                     leftIndent=7 * mm,
                     bulletFontName=styles["body"].fontName,
                     bulletFontSize=7.5,
-                    bulletColor=BLUE,
+                    bulletColor=DEEP_SAFFRON,
                     spaceAfter=1.5 * mm,
                 )
             )
@@ -985,7 +996,7 @@ def build_pdf(
             styles["subtitle"],
         ),
         Spacer(1, 18 * mm),
-        HRFlowable(width="38%", thickness=2.4, color=CYAN, hAlign="LEFT"),
+        HRFlowable(width="38%", thickness=2.4, color=SAFFRON, hAlign="LEFT"),
         Spacer(1, 7 * mm),
         Paragraph("TECHNICAL WHITE PAPER", styles["covermeta"]),
         Paragraph("Version 1.0  |  Research release  |  8 August 2026", styles["covermeta"]),

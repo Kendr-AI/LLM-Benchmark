@@ -33,6 +33,17 @@ PUBLIC_RESULTS_STEM = "kendr-catalog-pilot-2026-08-08"
 PILOT_EXECUTION_VERSION = "1.0.0"
 LOGO_RELATIVE_PATH = Path("assets/brand/kendr-mark-ink-512.png")
 LEGACY_DISPLAY_BRAND = "Kendr" + " " + "AI"
+CANONICAL_PDF_PALETTE = {
+    "ink": (21, 20, 18),
+    "saffron": (226, 113, 42),
+    "paper": (250, 248, 244),
+    "warm_grey": (138, 131, 120),
+}
+LEGACY_PDF_PALETTE = {
+    "navy": (17, 35, 63),
+    "blue": (22, 102, 217),
+    "cyan": (32, 164, 184),
+}
 
 REQUIRED_FILES = (
     ".env.example",
@@ -278,6 +289,22 @@ def _check_branding(root: Path, version: str) -> list[str]:
         for token in ('given-names: "Prashant Kumar"', 'family-names: "Dey"', 'affiliation: "Kendr"'):
             if token not in citation:
                 problems.append(f"CITATION.cff is missing researcher token {token!r}")
+
+    builder_path = root / "scripts/build_kgbp_whitepaper.py"
+    if builder_path.is_file():
+        builder = builder_path.read_text(encoding="utf-8")
+        for name, rgb in CANONICAL_PDF_PALETTE.items():
+            hex_value = "#" + "".join(f"{channel:02X}" for channel in rgb)
+            if hex_value not in builder:
+                problems.append(
+                    f"white-paper builder is missing canonical {name} color {hex_value}"
+                )
+        for name, rgb in LEGACY_PDF_PALETTE.items():
+            hex_value = "#" + "".join(f"{channel:02X}" for channel in rgb)
+            if hex_value in builder:
+                problems.append(
+                    f"white-paper builder retains legacy {name} color {hex_value}"
+                )
 
     for path in sorted(root.rglob("*")):
         if not path.is_file() or not _looks_textual(path):
@@ -649,6 +676,7 @@ def check_whitepaper_artifacts(root: Path) -> list[str]:
         else:
             try:
                 from pypdf import PdfReader
+                from pypdf.generic import ContentStream
 
                 reader = PdfReader(pdf_path)
                 metadata = reader.metadata
@@ -668,6 +696,27 @@ def check_whitepaper_artifacts(root: Path) -> list[str]:
                 )
                 if image_count < 1:
                     problems.append("white-paper PDF cover does not embed the Kendr logo")
+                palette_counts: defaultdict[tuple[int, int, int], int] = defaultdict(int)
+                for page in reader.pages:
+                    content = page.get_contents()
+                    if content is None:
+                        continue
+                    stream = ContentStream(content, reader)
+                    for operands, operator in stream.operations:
+                        if operator not in (b"rg", b"RG") or len(operands) != 3:
+                            continue
+                        rgb = tuple(round(float(value) * 255) for value in operands)
+                        palette_counts[rgb] += 1
+                for name, rgb in CANONICAL_PDF_PALETTE.items():
+                    if palette_counts[rgb] == 0:
+                        problems.append(
+                            f"white-paper PDF does not use canonical {name} color {rgb}"
+                        )
+                for name, rgb in LEGACY_PDF_PALETTE.items():
+                    if palette_counts[rgb] != 0:
+                        problems.append(
+                            f"white-paper PDF retains legacy {name} color {rgb}"
+                        )
             except ImportError:
                 problems.append("pypdf is unavailable; install documentation dependencies")
             except Exception as exc:

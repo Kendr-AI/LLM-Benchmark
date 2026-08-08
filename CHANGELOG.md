@@ -4,6 +4,30 @@ All notable project changes are documented here. The project follows Semantic
 Versioning and keeps the protocol version separate from individual benchmark
 round identifiers.
 
+## [1.0.2] - 2026-08-08
+
+### Corrected
+
+- Reworked the technical white paper around Kendr's official Ink, Saffron,
+  Paper, and Warm grey color system as used by `kendr.org`.
+- Replaced the former blue/cyan publication palette with an Ink cover and
+  header, Saffron accents and chart bars, warm Paper pages, and accessible
+  derived tones for small text, tables, code blocks, and callouts.
+- Added release verification for both the canonical PDF palette and the
+  absence of the legacy blue, cyan, and navy drawing colors.
+- Preserved the supplied Kendr logo without recoloring, rotation, gradients,
+  or shadows and retained its required clear space.
+
+### Scientific status
+
+- This is a rendering-only publication correction. No model calls were rerun,
+  and no prompts, responses, endpoint identities, scores, intervals, costs,
+  rankings, statistical tests, or conclusions changed.
+- The resolved white-paper Markdown and all frozen benchmark data remain
+  byte-identical to v1.0.1. The pilot continues to record execution software
+  version `1.0.0`.
+- The `v1.0.0` and `v1.0.1` tags and their attested assets remain immutable.
+
 ## [1.0.1] - 2026-08-08
 
 ### Corrected
@@ -62,5 +86,6 @@ round identifiers.
 - None of 595 paired comparisons is significant after Holm correction. The
   published row order must not be interpreted as a resolved universal rank.
 
+[1.0.2]: https://github.com/Kendr-AI/LLM-Benchmark/releases/tag/v1.0.2
 [1.0.1]: https://github.com/Kendr-AI/LLM-Benchmark/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Kendr-AI/LLM-Benchmark/releases/tag/v1.0.0
