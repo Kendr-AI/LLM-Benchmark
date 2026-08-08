@@ -1,7 +1,7 @@
 # Frontier model coverage register — 2026-08-08
 
-**Status:** Research snapshot and campaign-planning input  
-**Evidence cut-off:** 2026-08-08  
+**Status:** Research snapshot and campaign-planning input<br>
+**Evidence cut-off:** 2026-08-08<br>
 **Not a benchmark result:** This document does not replace or revise the [frozen Kendr pilot rankings](RANKINGS_2026-08-08.md).
 
 This register defines which current frontier systems should be considered for the next globally scoped LLM Benchmark campaign. It records exact vendor API identifiers, access maturity, system type, and the independent evidence used to justify coverage. Inclusion means that a system is relevant to one or more measured constructs; it does **not** mean that it is universally best, globally certified, or more popular than another model.
