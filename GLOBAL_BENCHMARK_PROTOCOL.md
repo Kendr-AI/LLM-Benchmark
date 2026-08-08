@@ -1,5 +1,8 @@
 # LLM Benchmark Protocol 1.0
 
+**Researcher:** Dr. Prashant Kumar Dey<br>
+**Project steward:** Kendr
+
 KGBP 1.0 is the reference profile implemented by LLM Benchmark Protocol. It is
 a standards-informed research protocol for comparing language models, endpoints,
 routers, agents, and AI applications without pretending those are the same kind

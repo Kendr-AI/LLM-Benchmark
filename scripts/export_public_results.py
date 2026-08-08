@@ -36,6 +36,10 @@ PUBLIC_FIELDS = (
     "reasoning_score",
 )
 
+# Historical execution provenance for the frozen 2026-08-07 pilot. Publication
+# patches must not relabel the software that actually executed the campaign.
+PILOT_EXECUTION_VERSION = "1.0.0"
+
 
 def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
@@ -118,7 +122,7 @@ def build_public_bundle(
     return {
         "schema_version": "1.0",
         "project": "LLM Benchmark Protocol",
-        "software_version": "1.0.0",
+        "software_version": PILOT_EXECUTION_VERSION,
         "protocol_profile": "KGBP-1.0",
         "scientific_status": (
             "Descriptive catalog pilot; not a publication-grade global study, "

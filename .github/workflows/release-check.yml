@@ -18,6 +18,21 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
+      - name: Resolve immutable release inputs
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Unsupported release tag: ${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
+          notes="docs/RELEASE_NOTES_v${version}.md"
+          if [[ ! -f "${notes}" ]]; then
+            echo "Missing release notes: ${notes}" >&2
+            exit 1
+          fi
+          echo "RELEASE_VERSION=${version}" >> "${GITHUB_ENV}"
+          echo "RELEASE_NOTES=${notes}" >> "${GITHUB_ENV}"
       - run: python -m pip install -e ".[dev,docs]" build pip-audit
       - run: python -m pytest
       - run: python scripts/verify_release.py --tag "${GITHUB_REF_NAME}"
@@ -35,7 +50,7 @@ jobs:
           mkdir -p release-assets
           pip-audit --path build/release-venv/lib/python3.11/site-packages \
             --format cyclonedx-json \
-            --output release-assets/LLM-Benchmark-Protocol-v1.0.0.sbom.json
+            --output "release-assets/LLM-Benchmark-Protocol-v${RELEASE_VERSION}.sbom.json"
       - name: Assemble release assets
         run: |
           cp dist/* release-assets/
@@ -45,26 +60,24 @@ jobs:
           cp docs/data/kendr-catalog-pilot-2026-08-08.csv release-assets/
           cp docs/data/protocol-design-audit-v1/protocol-audit.json release-assets/
           cp docs/data/protocol-design-audit-v1/protocol-audit.md release-assets/
+          cp assets/brand/kendr-mark-ink-512.png release-assets/
           (cd release-assets && sha256sum * > SHA256SUMS)
       - name: Attest release assets
         uses: actions/attest@v4
         with:
           subject-path: release-assets/*
-      - name: Create or update GitHub release
+      - name: Create immutable GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-            gh release upload "${GITHUB_REF_NAME}" release-assets/* --clobber
-            gh release edit "${GITHUB_REF_NAME}" \
-              --title "LLM Benchmark Protocol v1.0.0 - KGBP 1.0 Research Release" \
-              --notes-file docs/RELEASE_NOTES_v1.0.0.md
-          else
-            gh release create "${GITHUB_REF_NAME}" release-assets/* \
-              --verify-tag \
-              --title "LLM Benchmark Protocol v1.0.0 - KGBP 1.0 Research Release" \
-              --notes-file docs/RELEASE_NOTES_v1.0.0.md
+            echo "Release ${GITHUB_REF_NAME} already exists; refusing to overwrite immutable assets." >&2
+            exit 1
           fi
+          gh release create "${GITHUB_REF_NAME}" release-assets/* \
+            --verify-tag \
+            --title "LLM Benchmark Protocol ${GITHUB_REF_NAME} - KGBP 1.0 Research Release" \
+            --notes-file "${RELEASE_NOTES}"
       - uses: actions/upload-artifact@v7
         with:
           name: release-${{ github.ref_name }}

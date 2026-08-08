@@ -2,6 +2,13 @@
 
 Release date: 2026-08-08
 
+> **Correction notice:** Branding and researcher attribution were corrected in
+> [`v1.0.1`](RELEASE_NOTES_v1.0.1.md). The `v1.0.0` tag and assets remain
+> unchanged as historical evidence.
+
+Researcher: **Dr. Prashant Kumar Dey**<br>
+Project steward: **Kendr**
+
 LLM Benchmark Protocol v1.0.0 is the first versioned public release of the
 KGBP 1.0 specification, its Python reference harness, machine-readable evidence
 contracts, and a privacy-reviewed catalog-pilot result bundle.
@@ -162,6 +169,7 @@ SHA-256 manifest, attests build provenance, and publishes the GitHub release.
 
 Use [CITATION.cff](../CITATION.cff), cite software version 1.0.0 and protocol
 profile KGBP 1.0, and include the exact benchmark-round identifier when citing
-the catalog results.
+the catalog results. The researcher is **Dr. Prashant Kumar Dey** and the
+reference implementation is published by **Kendr**.
 
 The complete change list is in [CHANGELOG.md](../CHANGELOG.md).

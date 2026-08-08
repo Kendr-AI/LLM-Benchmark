@@ -57,7 +57,14 @@ PALE_CYAN = HexColor("#E9F8F8")
 LINE = HexColor("#D2DCE9")
 AMBER = HexColor("#B26A00")
 PALE_AMBER = HexColor("#FFF4DC")
+BRAND_PAPER = HexColor("#FAF8F4")
 WHITE = colors.white
+DEFAULT_LOGO_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "assets"
+    / "brand"
+    / "kendr-mark-ink-512.png"
+)
 
 
 def _ascii_safe(text: str) -> str:
@@ -651,6 +658,21 @@ def _cover(canvas: Any, doc: BaseDocTemplate) -> None:
     canvas.setLineWidth(0.5)
     for y in range(24, 285, 18):
         canvas.line(28 * mm, y * mm, 195 * mm, y * mm)
+    logo_path = getattr(doc, "kendr_logo_path", None)
+    if not logo_path:
+        raise RuntimeError("Kendr logo path was not attached to the PDF document")
+    canvas.setFillColor(BRAND_PAPER)
+    canvas.roundRect(162 * mm, 252 * mm, 30 * mm, 30 * mm, 3 * mm, fill=1, stroke=0)
+    canvas.drawImage(
+        logo_path,
+        167 * mm,
+        257 * mm,
+        width=20 * mm,
+        height=20 * mm,
+        mask="auto",
+        preserveAspectRatio=True,
+        anchor="c",
+    )
     canvas.restoreState()
 
 
@@ -668,7 +690,7 @@ def _body_page(canvas: Any, doc: BaseDocTemplate) -> None:
     canvas.line(18 * mm, 13 * mm, width - 18 * mm, 13 * mm)
     canvas.setFont("Helvetica", 7.2)
     canvas.setFillColor(MUTED)
-    canvas.drawString(18 * mm, 8.2 * mm, "Technical proposal - evidence-qualified reporting")
+    canvas.drawString(18 * mm, 8.2 * mm, "Kendr - technical proposal - evidence-qualified reporting")
     canvas.drawRightString(width - 18 * mm, 8.2 * mm, f"{doc.page}")
     canvas.restoreState()
 
@@ -893,9 +915,12 @@ def build_pdf(
     panel_metadata_path: Path | None,
     manifest_path: Path | None,
     catalog_path: Path | None,
+    logo_path: Path,
     output_path: Path,
     resolved_path: Path,
 ) -> None:
+    if not logo_path.is_file():
+        raise FileNotFoundError(f"Kendr logo not found: {logo_path}")
     source = source_path.read_text(encoding="utf-8")
     leaderboard = json.loads(leaderboard_path.read_text(encoding="utf-8"))
     audit = json.loads(audit_path.read_text(encoding="utf-8")) if audit_path and audit_path.exists() else None
@@ -939,10 +964,11 @@ def build_pdf(
         topMargin=margin_top,
         bottomMargin=margin_bottom,
         title="LLM Benchmark Protocol 1.0 - KGBP 1.0 Reference Profile",
-        author="LLM Benchmark Protocol contributors; reference implementation initiated by Kendr AI",
+        author="Dr. Prashant Kumar Dey; LLM Benchmark Protocol contributors",
         subject="Standards-oriented model, endpoint, router, agent, and application evaluation protocol",
-        creator="LLM Benchmark Protocol reference publication pipeline",
+        creator="Kendr - LLM Benchmark Protocol publication pipeline",
     )
+    document.kendr_logo_path = str(logo_path)
     document.addPageTemplates(
         [
             PageTemplate(id="Cover", frames=[cover_frame], onPage=_cover, autoNextPageTemplate="Body"),
@@ -963,8 +989,9 @@ def build_pdf(
         Spacer(1, 7 * mm),
         Paragraph("TECHNICAL WHITE PAPER", styles["covermeta"]),
         Paragraph("Version 1.0  |  Research release  |  8 August 2026", styles["covermeta"]),
-        Paragraph("LLM Benchmark Protocol contributors  |  Reference implementation initiated by Kendr AI", styles["covermeta"]),
-        Spacer(1, 24 * mm),
+        Paragraph("Researcher: Dr. Prashant Kumar Dey", styles["covermeta"]),
+        Paragraph("LLM Benchmark Protocol contributors  |  Reference implementation initiated by Kendr", styles["covermeta"]),
+        Spacer(1, 19 * mm),
         Paragraph(
             "Status: Public research proposal and reference implementation. The KGBP profile's "
             "automated declaration scores are not independent validation. This document is not an ISO, "
@@ -1001,6 +1028,7 @@ def main() -> int:
     parser.add_argument("--panel-metadata", type=Path)
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--catalog", type=Path)
+    parser.add_argument("--logo", type=Path, default=DEFAULT_LOGO_PATH)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--resolved-markdown", type=Path, required=True)
     args = parser.parse_args()
@@ -1011,12 +1039,14 @@ def main() -> int:
         args.panel_metadata.resolve() if args.panel_metadata else None,
         args.manifest.resolve() if args.manifest else None,
         args.catalog.resolve() if args.catalog else None,
+        args.logo.resolve(),
         args.output.resolve(),
         args.resolved_markdown.resolve(),
     )
     print(json.dumps({
         "output": str(args.output.resolve()),
         "resolved_markdown": str(args.resolved_markdown.resolve()),
+        "logo": str(args.logo.resolve()),
         "built_at": datetime.now(timezone.utc).isoformat(),
     }, indent=2))
     return 0

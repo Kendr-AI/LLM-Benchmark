@@ -1,4 +1,5 @@
 * text=auto
+.gitattributes text eol=lf
 
 *.cff text eol=lf
 *.csv text eol=lf
@@ -14,3 +15,4 @@ LICENSE text eol=lf
 SHA256SUMS text eol=lf
 
 *.pdf binary
+*.png binary

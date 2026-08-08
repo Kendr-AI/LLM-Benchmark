@@ -4,6 +4,10 @@ LLM Benchmark Protocol is maintained as an open technical project. This file
 describes repository governance; it does not create an accreditation body or
 authorize global certification claims.
 
+The protocol researcher is **Dr. Prashant Kumar Dey**. **Kendr** stewards the
+reference implementation and public repository. These roles do not replace the
+independent review and replication required for stronger claim classes.
+
 ## Decision principles
 
 1. Measurement claims come before leaderboard presentation.

@@ -26,8 +26,13 @@ from urllib.parse import unquote
 
 PROJECT_DISTRIBUTION = "llm-benchmark-protocol"
 PROJECT_TITLE = "LLM Benchmark Protocol"
+BRAND_NAME = "Kendr"
+RESEARCHER_NAME = "Dr. Prashant Kumar Dey"
 CANONICAL_REPOSITORY = "https://github.com/Kendr-AI/LLM-Benchmark"
 PUBLIC_RESULTS_STEM = "kendr-catalog-pilot-2026-08-08"
+PILOT_EXECUTION_VERSION = "1.0.0"
+LOGO_RELATIVE_PATH = Path("assets/brand/kendr-mark-ink-512.png")
+LEGACY_DISPLAY_BRAND = "Kendr" + " " + "AI"
 
 REQUIRED_FILES = (
     ".env.example",
@@ -39,6 +44,7 @@ REQUIRED_FILES = (
     ".github/dependabot.yml",
     ".github/workflows/ci.yml",
     ".github/workflows/release-check.yml",
+    "AUTHORS.md",
     "CHANGELOG.md",
     "CITATION.cff",
     "CODE_OF_CONDUCT.md",
@@ -50,6 +56,8 @@ REQUIRED_FILES = (
     "README.md",
     "RELEASING.md",
     "SECURITY.md",
+    "assets/brand/README.md",
+    LOGO_RELATIVE_PATH.as_posix(),
     "benchmarks/cases.jsonl",
     "config/global-observation-v1.schema.json",
     "config/global-protocol-v1.example.json",
@@ -221,6 +229,70 @@ def check_required_files(root: Path, version: str) -> list[str]:
             problems.append(f"missing required file: {relative}")
         elif path.stat().st_size == 0:
             problems.append(f"required file is empty: {relative}")
+    problems.extend(_check_branding(root, version))
+    return problems
+
+
+def _check_branding(root: Path, version: str) -> list[str]:
+    problems: list[str] = []
+    logo_path = root / LOGO_RELATIVE_PATH
+    if logo_path.is_file():
+        data = logo_path.read_bytes()
+        if not data.startswith(b"\x89PNG\r\n\x1a\n") or len(data) < 24:
+            problems.append("Kendr logo is not a valid PNG")
+        else:
+            width = int.from_bytes(data[16:20], "big")
+            height = int.from_bytes(data[20:24], "big")
+            if (width, height) != (512, 512):
+                problems.append(f"Kendr logo dimensions {(width, height)} != (512, 512)")
+
+    required_attribution = (
+        "README.md",
+        "AUTHORS.md",
+        "GLOBAL_BENCHMARK_PROTOCOL.md",
+        "GOVERNANCE.md",
+        "docs/PROTOCOL_CARD.md",
+        f"docs/RELEASE_NOTES_v{version}.md",
+        "whitepaper/KGBP_1_0_WHITE_PAPER.md",
+        "output/pdf/LLM_Benchmark_Protocol_1_0_White_Paper.resolved.md",
+    )
+    for relative in required_attribution:
+        path = root / relative
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        if RESEARCHER_NAME not in text:
+            problems.append(f"{relative} does not credit {RESEARCHER_NAME}")
+        if BRAND_NAME not in text:
+            problems.append(f"{relative} does not identify {BRAND_NAME}")
+
+    readme_path = root / "README.md"
+    if readme_path.is_file() and LOGO_RELATIVE_PATH.as_posix() not in readme_path.read_text(
+        encoding="utf-8"
+    ):
+        problems.append("README.md does not display the canonical Kendr logo")
+
+    citation_path = root / "CITATION.cff"
+    if citation_path.is_file():
+        citation = citation_path.read_text(encoding="utf-8")
+        for token in ('given-names: "Prashant Kumar"', 'family-names: "Dey"', 'affiliation: "Kendr"'):
+            if token not in citation:
+                problems.append(f"CITATION.cff is missing researcher token {token!r}")
+
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or not _looks_textual(path):
+            continue
+        relative = path.relative_to(root)
+        if any(part in EXCLUDED_WALK_PARTS for part in relative.parts):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        if LEGACY_DISPLAY_BRAND in text:
+            problems.append(
+                f"legacy display brand remains in {relative.as_posix()}"
+            )
     return problems
 
 
@@ -436,9 +508,11 @@ def check_public_ranking(root: Path, version: str) -> list[str]:
     bundle = _read_json(json_path)
     if bundle.get("project") != PROJECT_TITLE:
         problems.append(f"public ranking project must be {PROJECT_TITLE!r}")
-    if bundle.get("software_version") != version:
+    if bundle.get("software_version") != PILOT_EXECUTION_VERSION:
         problems.append(
-            f"public ranking software_version {bundle.get('software_version')!r} != {version!r}"
+            "public ranking execution software_version "
+            f"{bundle.get('software_version')!r} != {PILOT_EXECUTION_VERSION!r}; "
+            f"publication release is {version!r}"
         )
     results = bundle.get("results")
     not_applicable = bundle.get("not_applicable")
@@ -457,7 +531,7 @@ def check_public_ranking(root: Path, version: str) -> list[str]:
     catalog_entries = int(scope.get("catalog_entries", -1))
     if (catalog_entries, ranked, excluded) != (37, 35, 2):
         problems.append(
-            "v1.0.0 public scope must remain 37 catalog entries, "
+            "frozen public scope must remain 37 catalog entries, "
             "35 ranked text endpoints, and 2 not-applicable entries"
         )
     if len(results) != ranked:
@@ -503,7 +577,7 @@ def check_public_ranking(root: Path, version: str) -> list[str]:
         )
     if inference.get("holm_rejections") != 0:
         problems.append(
-            "v1.0.0 public inference must report zero Holm-adjusted rejections"
+            "frozen public inference must report zero Holm-adjusted rejections"
         )
     if any(privacy.get(key) is not False for key in (
         "raw_prompts_included",
@@ -572,6 +646,32 @@ def check_whitepaper_artifacts(root: Path) -> list[str]:
             problems.append("white-paper PDF is unexpectedly small")
         elif not pdf_path.read_bytes().startswith(b"%PDF-"):
             problems.append("white-paper PDF does not have a PDF file signature")
+        else:
+            try:
+                from pypdf import PdfReader
+
+                reader = PdfReader(pdf_path)
+                metadata = reader.metadata
+                if not metadata or RESEARCHER_NAME not in str(metadata.author or ""):
+                    problems.append(
+                        f"white-paper PDF author must credit {RESEARCHER_NAME!r}"
+                    )
+                cover_text = reader.pages[0].extract_text() or ""
+                if RESEARCHER_NAME not in cover_text or BRAND_NAME not in cover_text:
+                    problems.append("white-paper PDF cover has incomplete Kendr attribution")
+                resources = reader.pages[0].get("/Resources") or {}
+                xobjects = resources.get("/XObject") or {}
+                image_count = sum(
+                    1
+                    for item in xobjects.values()
+                    if item.get_object().get("/Subtype") == "/Image"
+                )
+                if image_count < 1:
+                    problems.append("white-paper PDF cover does not embed the Kendr logo")
+            except ImportError:
+                problems.append("pypdf is unavailable; install documentation dependencies")
+            except Exception as exc:
+                problems.append(f"unable to inspect white-paper PDF branding: {exc}")
     if resolved_path.is_file():
         resolved = resolved_path.read_text(encoding="utf-8")
         if "{{CAMPAIGN_RESULTS}}" in resolved:
@@ -684,6 +784,12 @@ def check_package_metadata(root: Path, version: str) -> list[str]:
         problems.append("project.version changed during verification")
     if project.get("readme") != "README.md":
         problems.append("project.readme must be README.md")
+    authors = project.get("authors") or []
+    if not any(item.get("name") == RESEARCHER_NAME for item in authors if isinstance(item, dict)):
+        problems.append(f"project.authors must credit {RESEARCHER_NAME}")
+    maintainers = project.get("maintainers") or []
+    if not any(item.get("name") == BRAND_NAME for item in maintainers if isinstance(item, dict)):
+        problems.append(f"project.maintainers must identify {BRAND_NAME}")
     license_value = project.get("license")
     if not isinstance(license_value, dict) or license_value.get("file") != "LICENSE":
         problems.append("project.license must reference LICENSE")
@@ -764,6 +870,9 @@ def check_package_metadata(root: Path, version: str) -> list[str]:
             "sdist does not exclude local/private paths: "
             + ", ".join(missing_excludes)
         )
+    sdist_includes = {str(value).rstrip("/") for value in sdist.get("include", [])}
+    if "/assets" not in sdist_includes:
+        problems.append("sdist does not include the Kendr brand asset directory")
     return problems
 
 

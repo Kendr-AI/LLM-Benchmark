@@ -4,7 +4,7 @@
 
 Version 1.0 - KGBP 1.0 reference profile - Technical White Paper - 8 August 2026
 
-LLM Benchmark Protocol contributors - Reference implementation initiated by Kendr AI Evaluation Engineering
+Researcher: Dr. Prashant Kumar Dey - LLM Benchmark Protocol contributors - Reference implementation initiated by Kendr
 
 Status: Public research proposal and reference implementation. The automated profile audit checks declared controls; it is not an independent validation of their truth or adequacy. This document is not an ISO, NIST, OECD, EU, or MLCommons certification, endorsement, accreditation, or conformity assessment.
 

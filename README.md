@@ -1,4 +1,11 @@
+<p align="center">
+  <img src="assets/brand/kendr-mark-ink-512.png" alt="Kendr logo" width="112">
+</p>
+
 # LLM Benchmark Protocol
+
+**A Kendr research project**<br>
+**Researcher:** Dr. Prashant Kumar Dey
 
 [![CI](https://github.com/Kendr-AI/LLM-Benchmark/actions/workflows/ci.yml/badge.svg)](https://github.com/Kendr-AI/LLM-Benchmark/actions/workflows/ci.yml)
 [![Release checks](https://github.com/Kendr-AI/LLM-Benchmark/actions/workflows/release-check.yml/badge.svg)](https://github.com/Kendr-AI/LLM-Benchmark/actions/workflows/release-check.yml)
@@ -11,9 +18,10 @@ routers, agents, and AI applications. It makes planned denominators, system
 classification, uncertainty, operational failures, evidence lineage, and
 governance part of the benchmark rather than afterthoughts.
 
-KGBP 1.0 is the repository's fully specified reference profile. The public
-software version and the protocol-profile version are both `1.0.0` for this
-release, but they are versioned independently from benchmark campaign IDs.
+KGBP 1.0 is the repository's fully specified reference profile. The current
+software release is `1.0.1`; the protocol profile remains KGBP 1.0, and the
+frozen pilot correctly retains its original `1.0.0` execution provenance.
+Software, profile, and benchmark campaign IDs are versioned independently.
 
 > [!IMPORTANT]
 > This is a **research release**, not an ISO standard, certification program,
@@ -93,7 +101,7 @@ schedule and an optional one-call paid smoke test.
 Install from a tagged source archive or a clone:
 
 ```bash
-python -m pip install "llm-benchmark-protocol @ git+https://github.com/Kendr-AI/LLM-Benchmark.git@v1.0.0"
+python -m pip install "llm-benchmark-protocol @ git+https://github.com/Kendr-AI/LLM-Benchmark.git@v1.0.1"
 ```
 
 The wheel carries its default cases, pricing data, constraints, example
@@ -207,7 +215,7 @@ and [CSV](docs/data/kendr-catalog-pilot-2026-08-08.csv), with a
 | Correct, appeal, or invalidate a result | [Appeals and corrections](docs/APPEALS_AND_CORRECTIONS.md) |
 | Review common questions and claim boundaries | [FAQ](docs/FAQ.md) |
 | Inspect the empirical pilot | [35-endpoint rankings](docs/RANKINGS_2026-08-08.md) |
-| Review release changes and verification | [Release notes](docs/RELEASE_NOTES_v1.0.0.md) and [release process](RELEASING.md) |
+| Review release changes and verification | [Release notes](docs/RELEASE_NOTES_v1.0.1.md) and [release process](RELEASING.md) |
 
 Reusable system-card, benchmark-card, preregistration, deviation-log, and
 threat-model files are under [`templates`](templates).
@@ -245,7 +253,13 @@ Security issues should follow [SECURITY.md](SECURITY.md), not a public issue.
 ## Citation, license, and status
 
 Citation metadata is in [CITATION.cff](CITATION.cff). Cite both release
-`v1.0.0` and the exact matrix ID when reusing the pilot results.
+`v1.0.1` and the exact matrix ID when reusing the pilot results. The pilot's
+recorded execution-software version remains `1.0.0` because this patch does not
+retroactively relabel the frozen experiment.
+
+Researcher and project-stewardship information is documented in
+[AUTHORS.md](AUTHORS.md). The researcher is **Dr. Prashant Kumar Dey**, and the
+reference implementation is published by **Kendr**.
 
 Source code is available under the [MIT License](LICENSE). Published aggregate
 results and third-party benchmark materials have the separate terms described

@@ -4,12 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "llm-benchmark-protocol"
-version = "1.0.0"
+version = "1.0.1"
 description = "A claim-first, system-aware protocol and reference harness for reproducible LLM evaluation"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
-authors = [{ name = "Kendr AI" }]
+authors = [{ name = "Dr. Prashant Kumar Dey" }]
+maintainers = [{ name = "Kendr" }]
 keywords = [
   "ai-evaluation",
   "benchmarking",
@@ -93,6 +94,7 @@ packages = ["src/kendr_bench"]
 include = [
   "/.env.example",
   "/.github",
+  "/assets",
   "/benchmarks",
   "/config",
   "/docs",

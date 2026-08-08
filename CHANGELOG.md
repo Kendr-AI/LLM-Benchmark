@@ -4,6 +4,33 @@ All notable project changes are documented here. The project follows Semantic
 Versioning and keeps the protocol version separate from individual benchmark
 round identifiers.
 
+## [1.0.1] - 2026-08-08
+
+### Corrected
+
+- Standardized the public organization name as **Kendr** while preserving the
+  `Kendr-AI` GitHub owner slug inside functioning repository URLs.
+- Credited **Dr. Prashant Kumar Dey** as the protocol researcher in package,
+  citation, governance, release, protocol-card, README, and white-paper
+  metadata.
+- Added the canonical Kendr mark to the repository, README, source
+  distribution, release bundle, and white-paper cover using the supplied brand
+  colors and clear-space rules.
+- Regenerated the white paper with corrected cover text, PDF author/creator
+  metadata, and embedded logo.
+- Made tag releases immutable: the workflow now rejects an existing release
+  instead of overwriting published assets.
+- Preserved the frozen pilot's original `1.0.0` execution-software provenance;
+  this patch changes publication branding and attribution, not benchmark data
+  or rankings.
+
+### Scientific status
+
+- No model calls were rerun and no ranking values, endpoint identities,
+  uncertainty intervals, or inferential conclusions changed.
+- The `v1.0.0` tag and its attested assets remain an immutable historical
+  release. This correction is published separately as `v1.0.1`.
+
 ## [1.0.0] - 2026-08-08
 
 ### Added
@@ -35,4 +62,5 @@ round identifiers.
 - None of 595 paired comparisons is significant after Holm correction. The
   published row order must not be interpreted as a resolved universal rank.
 
+[1.0.1]: https://github.com/Kendr-AI/LLM-Benchmark/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Kendr-AI/LLM-Benchmark/releases/tag/v1.0.0

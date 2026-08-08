@@ -5,8 +5,10 @@
 | Field | Value |
 |---|---|
 | Public name | LLM Benchmark Protocol |
+| Researcher | Dr. Prashant Kumar Dey |
+| Steward | Kendr |
 | Reference profile | KGBP 1.0 |
-| Software release | 1.0.0 |
+| Software release | 1.0.1 |
 | Lifecycle | Beta research release |
 | Primary specification | [`GLOBAL_BENCHMARK_PROTOCOL.md`](../GLOBAL_BENCHMARK_PROTOCOL.md) |
 | Configuration schema | [`global-protocol-v1.schema.json`](../config/global-protocol-v1.schema.json) |
