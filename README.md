@@ -156,6 +156,50 @@ paper](output/pdf/LLM_Benchmark_Protocol_1_0_White_Paper.pdf), and
 assumptions, estimators, multiplicity control, rank uncertainty, and evidence
 requirements.
 
+## Current-frontier execution snapshot
+
+The repository also publishes a privacy-reviewed callable-subset matrix run on
+2026-08-08. It used the dated current-frontier profile, 15 objective items
+(three from each of five LiveBench task strata), one generation per
+endpoint-item cell, Kendr-served defaults, and score-weighted operational
+goodput as the primary metric.
+
+| Rank | GA candidate | Kendr endpoint | Goodput | 95% interval | Availability |
+|---:|---|---|---:|---:|---:|
+| 1 | GPT-5.6 Sol | `kc-gpt-5.6-sol` | 79.4% | 60.0%–95.6% | 86.7% |
+| 2 | Grok 4.5 | `kc-grok-4.5` | 72.0% | 46.7%–92.0% | 73.3% |
+| 3 | Claude Opus 5 | `kc-claude-opus-5` | 68.9% | 46.7%–88.9% | 80.0% |
+| 4 | Gemini 3.6 Flash | `kc-google-gemini-3-6-flash` | 33.1% | 12.0%–57.3% | 100.0% |
+| 5 | DeepSeek V4 Flash 0731 | `kc-ollama-deepseek-v4-flash-0731` | 13.3% | 0.0%–33.3% | 13.3% |
+
+GPT-5.5 was a declared comparison baseline, not a frontier candidate, and is
+therefore unranked: its observed goodput was 68.9% with 73.3% availability.
+Six other GA coverage targets were N/A rather than zero because they were not
+callable under the frozen identity and access gates; two preview entries were
+kept in a separate, unranked companion cohort.
+
+The six scored endpoints produced 15 paired comparisons. Only two separated
+after Holm family-wise correction at 5%: GPT-5.6 Sol versus DeepSeek V4 Flash
+0731, and Claude Opus 5 versus DeepSeek V4 Flash 0731. GPT-5.6 Sol exceeded the
+GPT-5.5 baseline by 10.4667 percentage points in the point estimate, but its
+paired interval was [−2.6667, +28.7333] points (`p = 0.5`, Holm-adjusted
+`p = 1.0`), establishing neither a difference nor practical equivalence.
+
+See the [frontier execution handout](docs/FRONTIER_EXECUTION_LEADERBOARD_2026-08-08.md)
+for the complete N/A register, corrected inference, methods, and limitations.
+The sanitized aggregates are available as
+[JSON](docs/data/frontier-2026-08-08/kendr-frontier-leaderboard-2026-08-08.json)
+and [CSV](docs/data/frontier-2026-08-08/kendr-frontier-leaderboard-2026-08-08.csv),
+with a bundle-local [SHA-256 manifest](docs/data/frontier-2026-08-08/SHA256SUMS).
+The exact matrix ID is
+`20260808T070202Z-frontier-market-kendr-20260808-cfec3672`.
+
+> [!CAUTION]
+> These are endpoint-as-served point estimates from a small English-oriented,
+> one-generation slice. They are not a universal model ranking, certification,
+> or evidence of global acceptance. Thirteen of 15 endpoint pairs did not
+> separate after correction, and non-significance must not be called equality.
+
 ## Published 35-endpoint pilot
 
 The repository publishes a sanitized, frozen catalog pilot executed through
@@ -214,6 +258,9 @@ and [CSV](docs/data/kendr-catalog-pilot-2026-08-08.csv), with a
 | Threat-model a benchmark | [Threat model guide](docs/THREAT_MODEL.md) |
 | Correct, appeal, or invalidate a result | [Appeals and corrections](docs/APPEALS_AND_CORRECTIONS.md) |
 | Review common questions and claim boundaries | [FAQ](docs/FAQ.md) |
+| Review the dated current-frontier coverage decision | [Frontier model coverage](docs/FRONTIER_MODEL_COVERAGE_2026-08-08.md) |
+| Inspect the current-frontier callable-subset results | [Frontier execution leaderboard](docs/FRONTIER_EXECUTION_LEADERBOARD_2026-08-08.md) |
+| Understand GPT-5.6 Sol versus the GPT-5.5 baseline | [Paired comparison analysis](docs/GPT_5_6_VS_5_5_ANALYSIS_2026-08-08.md) |
 | Inspect the empirical pilot | [35-endpoint rankings](docs/RANKINGS_2026-08-08.md) |
 | Review release changes and verification | [Release notes](docs/RELEASE_NOTES_v1.0.2.md) and [release process](RELEASING.md) |
 

@@ -1,0 +1,11 @@
+[
+  {
+    "key": "gemini-3-1-pro-preview-kendr-companion",
+    "provider": "kendr",
+    "model": "kc-gemini-3.1-pro-preview",
+    "label": "Gemini 3.1 Pro Preview (Kendr served preview companion)",
+    "access": "Kendr API managed Google preview route; separate preview companion cohort",
+    "license": "Proprietary provider terms",
+    "license_source": "https://ai.google.dev/gemini-api/terms"
+  }
+]

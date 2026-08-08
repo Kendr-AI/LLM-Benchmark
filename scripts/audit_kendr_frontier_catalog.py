@@ -250,6 +250,7 @@ def audit_frontier_profile(
                     else entry.get("required", True) is not False
                 ),
                 "coverage_only": coverage_only,
+                "vendor_model_id": entry.get("vendor_model_id"),
             }
             if coverage_only:
                 item.update(
@@ -288,7 +289,10 @@ def audit_frontier_profile(
                 item.update(
                     {
                         "status": "missing",
-                        "reason": "Configured catalog id is absent from the snapshot.",
+                        "reason": (
+                            entry.get("n_a_reason")
+                            or "Configured catalog id is absent from the snapshot."
+                        ),
                     }
                 )
                 entry_audits.append(item)

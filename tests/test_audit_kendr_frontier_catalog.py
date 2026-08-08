@@ -46,6 +46,7 @@ def _profile() -> dict[str, object]:
                     {
                         "key": "core-model",
                         "label": "Core Model",
+                        "vendor_model_id": "vendor-core-model",
                         "catalog_id": "core-model",
                         "role": "candidate",
                     },
@@ -119,8 +120,8 @@ def test_frontier_audit_builds_separate_ready_panels() -> None:
         "catalog_id": None,
         "required": False,
         "coverage_only": True,
-        "status": "coverage_only",
         "vendor_model_id": "vendor-model-2026-08-08",
+        "status": "coverage_only",
         "coverage_status": "staged",
         "execution_eligible": False,
         "reason": "Staged coverage identity has no executable Kendr id.",
@@ -156,6 +157,23 @@ def test_frontier_audit_never_resolves_identity_from_label_alone() -> None:
         "some-other-id"
     ]
     assert [row["model"] for row in panels["core-ga"]] == ["baseline-model"]
+
+
+def test_frontier_audit_preserves_declared_reason_for_missing_route() -> None:
+    profile = _profile()
+    core_entry = profile["cohorts"][0]["entries"][0]  # type: ignore[index]
+    core_entry["n_a_reason"] = "Credential intentionally not configured."
+    catalog = [
+        _model("baseline-model", "Baseline Model"),
+        _model("preview-model", "Preview Model"),
+    ]
+
+    audit, _ = audit_frontier_profile(catalog, profile)
+
+    missing = audit["cohorts"][0]["entries"][0]
+    assert missing["status"] == "missing"
+    assert missing["vendor_model_id"] == "vendor-core-model"
+    assert missing["reason"] == "Credential intentionally not configured."
 
 
 def test_selected_duplicate_labels_block_panel_emission(tmp_path) -> None:

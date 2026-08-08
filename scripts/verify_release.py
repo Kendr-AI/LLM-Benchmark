@@ -30,6 +30,11 @@ BRAND_NAME = "Kendr"
 RESEARCHER_NAME = "Dr. Prashant Kumar Dey"
 CANONICAL_REPOSITORY = "https://github.com/Kendr-AI/LLM-Benchmark"
 PUBLIC_RESULTS_STEM = "kendr-catalog-pilot-2026-08-08"
+FRONTIER_RESULTS_STEM = "kendr-frontier-leaderboard-2026-08-08"
+FRONTIER_MATRIX_ID = (
+    "20260808T070202Z-frontier-market-kendr-20260808-cfec3672"
+)
+FRONTIER_DATA_RELATIVE = Path("docs/data/frontier-2026-08-08")
 PILOT_EXECUTION_VERSION = "1.0.0"
 LOGO_RELATIVE_PATH = Path("assets/brand/kendr-mark-ink-512.png")
 LEGACY_DISPLAY_BRAND = "Kendr" + " " + "AI"
@@ -73,10 +78,16 @@ REQUIRED_FILES = (
     "config/global-observation-v1.schema.json",
     "config/global-protocol-v1.example.json",
     "config/global-protocol-v1.schema.json",
+    "config/kendr-current-frontier-profile-20260808.json",
+    "config/kendr-frontier-execution-panel-20260808.json",
     "docs/ADOPTION_GUIDE.md",
     "docs/APPEALS_AND_CORRECTIONS.md",
+    "docs/CURRENT_FRONTIER_PANEL_2026-08-08.md",
     "docs/EVIDENCE_BUNDLE.md",
     "docs/FAQ.md",
+    "docs/FRONTIER_EXECUTION_LEADERBOARD_2026-08-08.md",
+    "docs/FRONTIER_MODEL_COVERAGE_2026-08-08.md",
+    "docs/GPT_5_6_VS_5_5_ANALYSIS_2026-08-08.md",
     "docs/PROTOCOL_CARD.md",
     "docs/PROVIDER_ADAPTER_GUIDE.md",
     "docs/QUICKSTART.md",
@@ -88,6 +99,19 @@ REQUIRED_FILES = (
     f"docs/data/{PUBLIC_RESULTS_STEM}.csv",
     f"docs/data/{PUBLIC_RESULTS_STEM}.json",
     "docs/data/SHA256SUMS",
+    (
+        FRONTIER_DATA_RELATIVE
+        / f"{FRONTIER_RESULTS_STEM}.csv"
+    ).as_posix(),
+    (
+        FRONTIER_DATA_RELATIVE
+        / f"{FRONTIER_RESULTS_STEM}.json"
+    ).as_posix(),
+    (
+        FRONTIER_DATA_RELATIVE
+        / f"{FRONTIER_RESULTS_STEM}.md"
+    ).as_posix(),
+    (FRONTIER_DATA_RELATIVE / "SHA256SUMS").as_posix(),
     "examples/README.md",
     "examples/expected/toy-scorecards-summary.json",
     "examples/toy-observations.jsonl",
@@ -663,6 +687,161 @@ def check_public_ranking(root: Path, version: str) -> list[str]:
     return problems
 
 
+def check_frontier_ranking(root: Path, version: str) -> list[str]:
+    """Validate the dated current-frontier public aggregate bundle."""
+
+    problems: list[str] = []
+    data_dir = root / FRONTIER_DATA_RELATIVE
+    json_path = data_dir / f"{FRONTIER_RESULTS_STEM}.json"
+    csv_path = data_dir / f"{FRONTIER_RESULTS_STEM}.csv"
+    markdown_path = data_dir / f"{FRONTIER_RESULTS_STEM}.md"
+    checksum_path = data_dir / "SHA256SUMS"
+    handout_path = root / "docs/FRONTIER_EXECUTION_LEADERBOARD_2026-08-08.md"
+    required = (json_path, csv_path, markdown_path, checksum_path, handout_path)
+    if not all(path.is_file() for path in required):
+        return ["frontier ranking bundle is incomplete"]
+
+    bundle = _read_json(json_path)
+    if bundle.get("project") != PROJECT_TITLE:
+        problems.append(f"frontier ranking project must be {PROJECT_TITLE!r}")
+    if bundle.get("matrix_id") != FRONTIER_MATRIX_ID:
+        problems.append("frontier ranking matrix id is not the frozen release id")
+    software = bundle.get("execution_software") or {}
+    if software.get("package") != PROJECT_DISTRIBUTION:
+        problems.append("frontier ranking execution package is incorrect")
+    if software.get("version") != version:
+        problems.append(
+            "frontier ranking execution version "
+            f"{software.get('version')!r} != release version {version!r}"
+        )
+    if software.get("source_repository") != CANONICAL_REPOSITORY:
+        problems.append("frontier ranking source repository is not canonical")
+    if not re.fullmatch(r"[0-9a-f]{40}", str(software.get("source_commit") or "")):
+        problems.append("frontier ranking source commit is not a full Git SHA")
+    if software.get("source_worktree_dirty") is not False:
+        problems.append("frontier ranking execution worktree must be recorded clean")
+
+    rows = bundle.get("rows")
+    if not isinstance(rows, list):
+        return [*problems, "frontier ranking rows must be an array"]
+    scope = bundle.get("scope") or {}
+    expected_scope = {
+        "profile_entries": 14,
+        "core_ga_candidates": 11,
+        "scored_core_ga_candidates": 5,
+        "not_measured_core_ga_candidates": 6,
+        "scored_baselines": 1,
+        "preview_companion_entries": 2,
+        "scored_preview_companion_entries": 0,
+    }
+    for key, value in expected_scope.items():
+        if scope.get(key) != value:
+            problems.append(
+                f"frontier ranking scope {key}={scope.get(key)!r}, expected {value}"
+            )
+    if len(rows) != expected_scope["profile_entries"]:
+        problems.append(
+            f"frontier ranking has {len(rows)} rows; expected "
+            f"{expected_scope['profile_entries']}"
+        )
+
+    scored = [
+        row
+        for row in rows
+        if isinstance(row, Mapping) and row.get("benchmark_status") == "scored"
+    ]
+    candidates = [row for row in scored if row.get("role") == "candidate"]
+    baselines = [row for row in scored if row.get("role") == "baseline"]
+    not_measured = [
+        row
+        for row in rows
+        if isinstance(row, Mapping)
+        and row.get("benchmark_status") == "not_measured"
+    ]
+    if len(candidates) != 5 or [row.get("rank") for row in candidates] != list(
+        range(1, 6)
+    ):
+        problems.append("frontier candidate ranks must be the ordered sequence 1..5")
+    if len(baselines) != 1 or baselines[0].get("rank") is not None:
+        problems.append("frontier GPT-5.5 baseline must be scored and unranked")
+    if len(not_measured) != 8:
+        problems.append("frontier bundle must retain eight explicit N/A rows")
+    for row in not_measured:
+        if row.get("operational_goodput") is not None:
+            problems.append("frontier N/A rows cannot carry a goodput score")
+        if not str(row.get("n_a_reason") or "").strip():
+            problems.append("frontier N/A rows must carry a reason")
+
+    scored_ids = [str(row.get("endpoint_id") or "") for row in scored]
+    if any(not value for value in scored_ids) or len(set(scored_ids)) != len(
+        scored_ids
+    ):
+        problems.append("frontier scored endpoint ids must be non-empty and unique")
+    sample = bundle.get("sample") or {}
+    if sample.get("questions") != 15 or sample.get("questions_per_task") != 3:
+        problems.append("frontier sample must remain 15 questions, three per task")
+    inference = bundle.get("pairwise_inference") or {}
+    if inference.get("comparisons") != 15 or inference.get("holm_rejections") != 2:
+        problems.append(
+            "frontier inference must report 15 comparisons and two Holm rejections"
+        )
+
+    privacy = bundle.get("privacy_review") or {}
+    privacy_fields = (
+        "raw_prompts_included",
+        "raw_responses_included",
+        "provider_request_ids_included",
+        "local_paths_included",
+        "provider_error_messages_included",
+    )
+    if any(privacy.get(key) is not False for key in privacy_fields):
+        problems.append(
+            "frontier privacy_review must explicitly exclude all raw/private fields"
+        )
+    forbidden_keys = {
+        "answer",
+        "api_key",
+        "authorization",
+        "headers",
+        "prompt",
+        "provider_request_id",
+        "raw_request",
+        "raw_response",
+        "response",
+    }
+    exposed = sorted({key.lower() for key in _walk_keys(bundle)} & forbidden_keys)
+    if exposed:
+        problems.append(f"frontier ranking exposes forbidden fields: {', '.join(exposed)}")
+
+    with csv_path.open("r", encoding="utf-8", newline="") as handle:
+        csv_rows = list(csv.DictReader(handle))
+    if len(csv_rows) != len(rows):
+        problems.append(
+            f"frontier CSV has {len(csv_rows)} rows; JSON has {len(rows)}"
+        )
+
+    checksum_entries, checksum_problems = _checksum_entries(checksum_path)
+    problems.extend(checksum_problems)
+    expected_names = {json_path.name, csv_path.name, markdown_path.name}
+    if set(checksum_entries) != expected_names:
+        problems.append(
+            "frontier SHA256SUMS entries "
+            f"{sorted(checksum_entries)} != expected {sorted(expected_names)}"
+        )
+    for name, expected_digest in checksum_entries.items():
+        artifact = data_dir / name
+        if artifact.is_file() and _sha256(artifact) != expected_digest:
+            problems.append(f"checksum mismatch: {FRONTIER_DATA_RELATIVE / name}")
+
+    handout = handout_path.read_text(encoding="utf-8")
+    if FRONTIER_MATRIX_ID not in handout:
+        problems.append("frontier handout omits the matrix id")
+    for endpoint_id in scored_ids:
+        if f"`{endpoint_id}`" not in handout:
+            problems.append(f"frontier handout omits endpoint ID {endpoint_id!r}")
+    return problems
+
+
 def check_whitepaper_artifacts(root: Path) -> list[str]:
     problems: list[str] = []
     pdf_path = root / "output/pdf/LLM_Benchmark_Protocol_1_0_White_Paper.pdf"
@@ -948,6 +1127,7 @@ def verify_release(
         ("internal Markdown links", lambda: check_markdown_links(root)),
         ("JSON and schemas", lambda: check_json_and_schemas(root)),
         ("public ranking bundle", lambda: check_public_ranking(root, version)),
+        ("frontier ranking bundle", lambda: check_frontier_ranking(root, version)),
         ("white-paper artifacts", lambda: check_whitepaper_artifacts(root)),
         ("repository safety", lambda: check_repository_safety(root)),
         ("package metadata", lambda: check_package_metadata(root, version)),

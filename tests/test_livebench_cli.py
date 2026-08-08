@@ -14,13 +14,16 @@ from kendr_bench.livebench_cli import (
     _current_run_question_ids,
     _generation_command,
     _json_sha256,
+    _missing_successful_judgment_ids,
     _normalize_missing_failed_judgments,
     _paths_for_benches,
     _percentile,
     _planned_question_records,
     _write_report,
     _write_summary,
+    build_parser,
     finalize_interrupted_run,
+    run_livebench,
 )
 
 
@@ -355,6 +358,235 @@ def _answer(question_id: str, request_ids: list[str], failed=False) -> dict:
             ]
         },
     }
+
+
+def _grading_gap_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    recover_on_retry: bool,
+) -> tuple[Namespace, list[list[str]]]:
+    livebench_root = tmp_path / "LiveBench"
+    work_dir = livebench_root / "livebench"
+    task_dir = (
+        work_dir
+        / "data"
+        / "live_bench"
+        / "reasoning"
+        / "task"
+    )
+    answer_path = task_dir / "model_answer" / "model.jsonl"
+    judgment_path = (
+        task_dir
+        / "model_judgment"
+        / "ground_truth_judgment.jsonl"
+    )
+    answer_path.parent.mkdir(parents=True)
+    judgment_path.parent.mkdir(parents=True)
+    answers = [_answer("q1", ["r1"]), _answer("q2", ["r2"])]
+    answer_path.write_text(
+        "".join(json.dumps(answer) + "\n" for answer in answers),
+        encoding="utf-8",
+    )
+    first_judgment = {
+        "question_id": "q1",
+        "category": "reasoning",
+        "task": "task",
+        "model": "model",
+        "score": 1.0,
+    }
+    judgment_path.write_text(
+        json.dumps(first_judgment) + "\n", encoding="utf-8"
+    )
+    calls = [
+        _call("r1", output_tokens=10),
+        _call("r2", output_tokens=10),
+    ]
+    commands: list[list[str]] = []
+
+    def fake_run_command(
+        command, *, cwd: Path | None = None, env=None
+    ) -> None:
+        del cwd, env
+        normalized = [str(item) for item in command]
+        commands.append(normalized)
+        mode = (
+            normalized[normalized.index("--mode") + 1]
+            if "--mode" in normalized
+            else "generation"
+        )
+        grading_calls = [
+            prior
+            for prior in commands
+            if "--mode" in prior
+            and prior[prior.index("--mode") + 1] == "grading"
+        ]
+        if mode == "grading" and len(grading_calls) == 2 and recover_on_retry:
+            recovered = {
+                "question_id": "q2",
+                "category": "reasoning",
+                "task": "task",
+                "model": "model",
+                "score": 0.75,
+            }
+            with judgment_path.open("a", encoding="utf-8", newline="\n") as handle:
+                handle.write(json.dumps(recovered) + "\n")
+
+    monkeypatch.setenv("KENDR_API_KEY", "test-key")
+    monkeypatch.delenv("KENDR_USD_PER_CREDIT", raising=False)
+    monkeypatch.setattr(
+        "kendr_bench.livebench_cli._validate_checkout",
+        lambda _: (True, "ok"),
+    )
+    monkeypatch.setattr(
+        "kendr_bench.livebench_cli.load_environment",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "kendr_bench.livebench_cli._package_versions", lambda: {}
+    )
+    monkeypatch.setattr(
+        "kendr_bench.livebench_cli._run_id", lambda _: "test-run"
+    )
+    monkeypatch.setattr(
+        "kendr_bench.livebench_cli._read_calls", lambda _: calls
+    )
+    monkeypatch.setattr(
+        "kendr_bench.livebench_cli._run_command", fake_run_command
+    )
+
+    args = build_parser().parse_args(
+        [
+            "run",
+            "--livebench-root",
+            str(livebench_root),
+            "--no-env-file",
+            "--model",
+            "kc-model",
+            "--model-display-name",
+            "model",
+            "--bench-name",
+            "live_bench/reasoning/task",
+            "--livebench-release-option",
+            "2024-11-25",
+            "--parallel-grading",
+            "4",
+            "--question-id",
+            "q1",
+            "q2",
+            "--output",
+            str(tmp_path / "runs"),
+        ]
+    )
+    args.planned_questions = [
+        {
+            "question_id": question_id,
+            "category": "reasoning",
+            "task": "task",
+            "livebench_release_date": "2024-11-25",
+        }
+        for question_id in ("q1", "q2")
+    ]
+    return args, commands
+
+
+def _command_question_ids(command: list[str]) -> list[str]:
+    start = command.index("--question-id") + 1
+    values: list[str] = []
+    for value in command[start:]:
+        if value.startswith("--"):
+            break
+        values.append(value)
+    return values
+
+
+def test_run_retries_only_missing_successful_judgments_serially_without_inference(
+    tmp_path, monkeypatch
+):
+    args, commands = _grading_gap_run(
+        tmp_path, monkeypatch, recover_on_retry=True
+    )
+
+    run_dir, summary = run_livebench(args)
+
+    generation_commands = [
+        command for command in commands if "--mode" not in command
+    ]
+    grading_commands = [
+        command
+        for command in commands
+        if "--mode" in command
+        and command[command.index("--mode") + 1] == "grading"
+    ]
+    assert len(generation_commands) == 1
+    assert len(grading_commands) == 2
+    retry = grading_commands[1]
+    assert _command_question_ids(retry) == ["q2"]
+    assert retry[retry.index("--parallel") + 1] == "1"
+    assert "--resume" not in retry
+    assert summary["completeness"]["complete"] is True
+    assert summary["completeness"]["missing_judgment_ids"] == []
+    manifest = json.loads(
+        (run_dir / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["grading_recovery"] == {
+        "policy": "single-serial-missing-successful-judgment-retry-v1",
+        "maximum_attempts": 1,
+        "attempted": True,
+        "question_ids": ["q2"],
+        "parallel_grading": 1,
+        "provider_inference_replayed": False,
+    }
+
+
+def test_run_fails_closed_without_synthesizing_when_serial_retry_is_incomplete(
+    tmp_path, monkeypatch
+):
+    args, commands = _grading_gap_run(
+        tmp_path, monkeypatch, recover_on_retry=False
+    )
+
+    with pytest.raises(RuntimeError, match="missing judgments: 1"):
+        run_livebench(args)
+
+    grading_commands = [
+        command
+        for command in commands
+        if "--mode" in command
+        and command[command.index("--mode") + 1] == "grading"
+    ]
+    assert len([command for command in commands if "--mode" not in command]) == 1
+    assert len(grading_commands) == 2
+    exported = [
+        json.loads(line)
+        for line in (tmp_path / "runs" / "test-run" / "judgments.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert [row["question_id"] for row in exported] == ["q1"]
+
+
+def test_grading_recovery_leaves_failed_answer_zero_normalization_unchanged():
+    answers = [_answer("q1", ["r1"], failed=True)]
+    judgments: list[dict] = []
+    planned = [
+        {"question_id": "q1", "category": "math", "task": "math_comp"}
+    ]
+
+    assert (
+        _missing_successful_judgment_ids(
+            planned_ids=["q1"], answers=answers, judgments=judgments
+        )
+        == []
+    )
+    assert _normalize_missing_failed_judgments(
+        judgments=judgments,
+        answers=answers,
+        planned_questions=planned,
+        planned_ids=["q1"],
+        model_display_name="model",
+    ) == ["q1"]
+    assert judgments[0]["score"] == 0.0
 
 
 def test_write_summary_counts_a_rejected_over_cap_attempt_as_a_violation(

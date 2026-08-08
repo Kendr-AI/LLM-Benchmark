@@ -14,47 +14,58 @@
         {
           "key": "claude-opus-5",
           "label": "Claude Opus 5",
+          "vendor_model_id": "claude-opus-5",
           "catalog_id": "kc-claude-opus-5",
           "role": "candidate"
         },
         {
           "key": "claude-fable-5",
           "label": "Claude Fable 5",
+          "vendor_model_id": "claude-fable-5",
           "catalog_id": "kc-claude-fable-5",
-          "role": "candidate"
+          "role": "candidate",
+          "n_a_reason": "Canonical Fable routing is staged, but Bedrock requires explicit provider_data_share consent that can share prompts and completions with Anthropic and retain them for up to 30 days. Kendr did not change that privacy setting, so this configuration is N/A rather than scored zero."
         },
         {
           "key": "gpt-5-6-sol",
           "label": "GPT-5.6 Sol",
+          "vendor_model_id": "gpt-5.6-sol",
           "catalog_id": "kc-gpt-5.6-sol",
           "role": "candidate"
         },
         {
           "key": "kimi-k3",
           "label": "Kimi K3",
+          "vendor_model_id": "kimi-k3",
           "catalog_id": "kc-kimi-k3",
           "role": "candidate",
+          "n_a_reason": "Canonical Moonshot routing is staged fail-closed, but no Moonshot credential is configured and discovery exposes no callable Kimi K3 endpoint.",
           "identity_note": "Canonical Kendr identity is staged; it remains ineligible until credentials, discovery, exact pricing, and a successful identity-resolved preflight are present."
         },
         {
           "key": "muse-spark-1-2-standard",
           "label": "Muse Spark 1.2 standard",
           "expected_display_name": "Muse Spark 1.2",
+          "vendor_model_id": "muse-spark-1.2",
           "catalog_id": "kc-muse-spark-1.2",
           "role": "candidate",
+          "n_a_reason": "The standard non-contributor Meta route is staged fail-closed, but no Meta credential or approved exact standard-route rate card is configured.",
           "identity_note": "Standard, non-contributor Meta route only. It remains ineligible until credentials, discovery, exact pricing, and a successful identity-resolved preflight are present."
         },
         {
           "key": "grok-4-5",
           "label": "Grok 4.5",
+          "vendor_model_id": "grok-4.5",
           "catalog_id": "kc-grok-4.5",
           "role": "candidate"
         },
         {
           "key": "glm-5-2",
           "label": "GLM 5.2",
+          "vendor_model_id": "glm-5.2",
           "catalog_id": "kc-glm-5.2",
-          "role": "candidate"
+          "role": "candidate",
+          "n_a_reason": "Canonical Z.AI routing and verified pricing are staged fail-closed, but no Z.AI credential is configured and no callable GLM 5.2 alias is exposed."
         },
         {
           "key": "deepseek-v4-flash-0731",
@@ -86,6 +97,7 @@
         {
           "key": "gemini-3-6-flash",
           "label": "Gemini 3.6 Flash",
+          "vendor_model_id": "gemini-3.6-flash",
           "catalog_id": "kc-google-gemini-3-6-flash",
           "role": "candidate"
         },
@@ -93,6 +105,7 @@
           "key": "gpt-5-5-baseline",
           "label": "GPT-5.5 baseline",
           "expected_display_name": "gpt-5.5",
+          "vendor_model_id": "gpt-5.5",
           "catalog_id": "kc-openai-gpt-5-5",
           "role": "baseline",
           "identity_note": "Benchmark baseline only; do not describe it as a current-frontier candidate."
@@ -108,13 +121,16 @@
           "key": "qwen-3-8-max-preview",
           "label": "Qwen 3.8 Max Preview",
           "expected_display_name": "Qwen3.8 Max Preview",
+          "vendor_model_id": "qwen3.8-max-preview",
           "catalog_id": "kc-qwen3.8-max-preview",
           "role": "candidate",
+          "n_a_reason": "The exact preview route is staged fail-closed, but it requires a dedicated paid Model Studio Token Plan endpoint and credential that are not configured.",
           "identity_note": "Preview identifier supplied for the companion cohort."
         },
         {
           "key": "gemini-3-1-pro-preview",
           "label": "Gemini 3.1 Pro Preview",
+          "vendor_model_id": "gemini-3.1-pro-preview",
           "catalog_id": "kc-gemini-3.1-pro-preview",
           "role": "candidate"
         }

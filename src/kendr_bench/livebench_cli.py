@@ -855,6 +855,48 @@ def _judgment_matches_answer(
     return True
 
 
+def _missing_successful_judgment_ids(
+    *,
+    planned_ids: Sequence[str],
+    answers: Sequence[Mapping[str, Any]],
+    judgments: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    """Return planned successful answers lacking a current scored judgment.
+
+    Recovery is deliberately narrower than completeness scoring. Failed
+    provider answers retain the protocol's zero normalization and are never
+    sent back through the objective grader. A stale judgment whose answer ID
+    does not match the current answer is also treated as missing.
+    """
+
+    answers_by_id = {
+        str(answer.get("question_id")): answer
+        for answer in answers
+        if answer.get("question_id")
+    }
+    if any(question_id not in answers_by_id for question_id in planned_ids):
+        return []
+    planned_id_set = set(planned_ids)
+    judged_ids = {
+        question_id
+        for judgment in judgments
+        if (
+            (question_id := str(judgment.get("question_id") or ""))
+            in planned_id_set
+            and is_scored(judgment)
+            and _judgment_matches_answer(
+                judgment, answers_by_id[question_id]
+            )
+        )
+    }
+    return [
+        question_id
+        for question_id in planned_ids
+        if not answer_failed(answers_by_id[question_id])
+        and question_id not in judged_ids
+    ]
+
+
 def _safe_ratio(numerator: float, denominator: float) -> float | None:
     return numerator / denominator if denominator else None
 
@@ -1897,6 +1939,14 @@ def run_livebench(args: argparse.Namespace) -> tuple[Path, dict[str, Any]]:
             if getattr(args, "allow_incomplete", False)
             else "strict"
         ),
+        "grading_recovery": {
+            "policy": "single-serial-missing-successful-judgment-retry-v1",
+            "maximum_attempts": 1,
+            "attempted": False,
+            "question_ids": [],
+            "parallel_grading": None,
+            "provider_inference_replayed": False,
+        },
         "runtime": {
             "python": sys.version,
             "packages": _package_versions(),
@@ -1923,11 +1973,6 @@ def run_livebench(args: argparse.Namespace) -> tuple[Path, dict[str, Any]]:
             cwd=work_dir,
             env=child_env,
         )
-        _run_command(
-            _show_command(args, root),
-            cwd=work_dir,
-            env=child_env,
-        )
 
     answer_paths = _paths_for_benches(
         work_dir,
@@ -1943,9 +1988,54 @@ def run_livebench(args: argparse.Namespace) -> tuple[Path, dict[str, Any]]:
     judgments = _model_judgments(
         _read_jsonl(judgment_paths), args.model_display_name
     )
+    calls = _read_calls(call_log)
+    current_answer_ids = _current_run_question_ids(calls, answers)
+    all_planned_answers_are_current = set(planned_question_ids) <= (
+        current_answer_ids
+    )
+    if not args.skip_grading and all_planned_answers_are_current:
+        retry_question_ids = _missing_successful_judgment_ids(
+            planned_ids=planned_question_ids,
+            answers=answers,
+            judgments=judgments,
+        )
+        if retry_question_ids:
+            recovery = manifest["grading_recovery"]
+            recovery.update(
+                {
+                    "attempted": True,
+                    "question_ids": retry_question_ids,
+                    "parallel_grading": 1,
+                }
+            )
+            (run_dir / "manifest.json").write_text(
+                json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+            )
+            retry_args = argparse.Namespace(**vars(args))
+            retry_args.question_id = retry_question_ids
+            retry_args.parallel_grading = 1
+            retry_args.resume = False
+            _run_command(
+                _grading_command(retry_args, root),
+                cwd=work_dir,
+                env=child_env,
+            )
+            judgment_paths = _paths_for_benches(
+                work_dir,
+                args.bench_name,
+                "model_judgment/ground_truth_judgment.jsonl",
+            )
+            judgments = _model_judgments(
+                _read_jsonl(judgment_paths), args.model_display_name
+            )
+    if not args.skip_grading:
+        _run_command(
+            _show_command(args, root),
+            cwd=work_dir,
+            env=child_env,
+        )
     _write_jsonl(run_dir / "answers.jsonl", answers)
     _write_jsonl(run_dir / "judgments.jsonl", judgments)
-    calls = _read_calls(call_log)
     copied_scores = _copy_score_files(work_dir, run_dir)
     summary = _write_summary(
         args=args,

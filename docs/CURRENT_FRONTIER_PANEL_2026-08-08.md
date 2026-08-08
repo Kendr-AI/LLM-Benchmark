@@ -38,6 +38,19 @@ default”: the harness does not claim that heterogeneous provider-side effort
 settings were normalized or that each model ran at a third-party
 leaderboard's `max` or `xhigh` configuration.
 
+## Executed snapshot
+
+The panel was executed as matrix
+`20260808T070202Z-frontier-market-kendr-20260808-cfec3672`. All 90 planned
+endpoint-question cells and all 90 objective judgments are present. The
+candidate-only point-estimate order and explicit N/A rows are published in the
+[frontier leaderboard handout](FRONTIER_EXECUTION_LEADERBOARD_2026-08-08.md),
+with privacy-reviewed aggregates in [JSON](data/frontier-2026-08-08/kendr-frontier-leaderboard-2026-08-08.json),
+[CSV](data/frontier-2026-08-08/kendr-frontier-leaderboard-2026-08-08.csv), and
+[Markdown](data/frontier-2026-08-08/kendr-frontier-leaderboard-2026-08-08.md).
+Only two of the 15 paired comparisons separated after Holm correction; the
+printed order must therefore remain descriptive.
+
 ## Offline coverage audit
 
 Capture or retain a catalog JSON array, then audit it without making inference

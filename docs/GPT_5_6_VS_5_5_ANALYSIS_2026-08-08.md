@@ -106,10 +106,71 @@ Not supported:
 
 A confirmatory comparison should pre-register a larger representative sample, use multiple generations, verify immutable/resolved model identity, match reasoning effort and tools, and report both quality and operational metrics. It should test at least matched `none` and matched medium configurations, plus `xhigh` or `max` only as separately named quality-first configurations.
 
+## Supplement: 2026-08-08 current-frontier callable-subset matrix
+
+**Supplement date:** 2026-08-08
+
+**Matrix:** `20260808T070202Z-frontier-market-kendr-20260808-cfec3672`
+
+**Execution status:** clean worktree at source commit `12ae34e5ffbd1a461b7c85819d3c16fce34bb97f`
+
+The current-frontier matrix reran the same frozen 15-item sample as a new
+endpoint campaign. Its result reversed the earlier point-estimate direction:
+GPT-5.6 Sol led the GPT-5.5 baseline by **10.4667 percentage points**. The
+reversal does not invalidate either artifact; it demonstrates why a single
+small, one-generation endpoint trial cannot support a stable model-family
+ordering.
+
+| New-matrix metric | GPT-5.6 Sol | GPT-5.5 baseline | Sol minus GPT-5.5 |
+|---|---:|---:|---:|
+| Score-weighted operational goodput | **79.3556%** | **68.8889%** | **+10.4667 pp** |
+| Availability | **86.6667% (13/15)** | **73.3333% (11/15)** | **+13.3333 pp** |
+| Conditional quality on successful answers | **91.5641%** | **93.9394%** | **−2.3753 pp** |
+| Failed final records | 2/15 | 4/15 | −2 failures for Sol |
+
+Operational goodput combines answer score with endpoint success over all 15
+planned items. In this run, Sol returned two more successful final records,
+while GPT-5.5 had the slightly higher conditional quality among successful
+answers. The goodput difference therefore cannot be interpreted as a pure
+latent-quality effect.
+
+The paired primary-metric inference was:
+
+- Sol minus GPT-5.5 mean difference: **+10.4667 percentage points**.
+- Paired 95% interval: **[−2.6667, +28.7333] percentage points**.
+- Exact two-sided randomization p-value: **0.5**.
+- Holm-adjusted p-value across the six-endpoint, 15-comparison family:
+  **1.0**.
+- Separation after Holm correction at 5%: **no**.
+- Practical equivalence at the declared ±2-point margin: **no**.
+
+The interval contains zero, so the rerun does not establish GPT-5.6 Sol
+superiority. It also extends well outside the equivalence margin, so it does
+not establish equality. “Not significant” and “equivalent” remain different
+claims.
+
+Only **two of all 15 endpoint pairs** separated after Holm correction:
+GPT-5.6 Sol versus DeepSeek V4 Flash 0731, and Claude Opus 5 versus DeepSeek V4
+Flash 0731. The GPT-5.6 Sol/GPT-5.5 pair was not one of them. Thirteen pairs
+remained unresolved after correction.
+
+The configuration caveat also remains. `reasoning_effort: none` was the harness
+request value, while provider-side effective reasoning/default behavior was
+not normalized through the Kendr request contract. The rows are therefore
+“Kendr served default” configurations, not matched max/xhigh evaluations.
+
+Claim-safe summary:
+
+> The 2026-08-08 callable-subset matrix observed 79.36% operational goodput for
+> GPT-5.6 Sol and 68.89% for the unranked GPT-5.5 baseline. The +10.47-point
+> paired estimate was statistically unresolved after multiplicity correction
+> and did not establish practical equivalence.
+
 ## Local evidence
 
 - [Frozen ranking handout](RANKINGS_2026-08-08.md)
 - [Release-safe aggregate JSON](data/kendr-catalog-pilot-2026-08-08.json)
-- Internal frozen artifact: `results/matrix/20260807T135702Z-kendr-catalog-text-full-20260807-797042f1/leaderboard.json`
+- [Current-frontier execution handout](FRONTIER_EXECUTION_LEADERBOARD_2026-08-08.md)
+- [Current-frontier aggregate JSON](data/frontier-2026-08-08/kendr-frontier-leaderboard-2026-08-08.json)
 
 The public handout’s governing disclosure remains unchanged: zero of 595 pairwise comparisons separated after Holm family-wise correction at 5%.
