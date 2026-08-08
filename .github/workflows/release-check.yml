@@ -58,6 +58,17 @@ jobs:
           cp docs/RANKINGS_2026-08-08.md release-assets/
           cp docs/data/kendr-catalog-pilot-2026-08-08.json release-assets/
           cp docs/data/kendr-catalog-pilot-2026-08-08.csv release-assets/
+          cp docs/FRONTIER_EXECUTION_LEADERBOARD_2026-08-08.md release-assets/
+          cp docs/FRONTIER_MODEL_COVERAGE_2026-08-08.md release-assets/
+          cp docs/GPT_5_6_VS_5_5_ANALYSIS_2026-08-08.md release-assets/
+          cp docs/data/frontier-2026-08-08/kendr-frontier-leaderboard-2026-08-08.json release-assets/
+          cp docs/data/frontier-2026-08-08/kendr-frontier-leaderboard-2026-08-08.csv release-assets/
+          cp docs/data/frontier-2026-08-08/kendr-frontier-leaderboard-2026-08-08.md release-assets/
+          cp docs/data/frontier-2026-08-08/SHA256SUMS release-assets/frontier-2026-08-08-SHA256SUMS
+          cp docs/data/frontier-preview-2026-08-08/kendr-frontier-preview-companion-2026-08-08.json release-assets/
+          cp docs/data/frontier-preview-2026-08-08/kendr-frontier-preview-companion-2026-08-08.csv release-assets/
+          cp docs/data/frontier-preview-2026-08-08/kendr-frontier-preview-companion-2026-08-08.md release-assets/
+          cp docs/data/frontier-preview-2026-08-08/SHA256SUMS release-assets/frontier-preview-2026-08-08-SHA256SUMS
           cp docs/data/protocol-design-audit-v1/protocol-audit.json release-assets/
           cp docs/data/protocol-design-audit-v1/protocol-audit.md release-assets/
           cp assets/brand/kendr-mark-ink-512.png release-assets/

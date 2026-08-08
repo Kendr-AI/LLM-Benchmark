@@ -4,6 +4,42 @@ All notable project changes are documented here. The project follows Semantic
 Versioning and keeps the protocol version separate from individual benchmark
 round identifiers.
 
+## [1.0.3] - 2026-08-08
+
+### Added
+
+- Published a dated current-frontier qualification register using explicit
+  model snapshots, access maturity, capability, provider-diversity, and Kendr
+  identity/preflight gates.
+- Published the privacy-reviewed current-frontier GA callable-subset bundle:
+  five ranked GA candidates, one unranked GPT-5.5 baseline, six GA targets
+  reported as N/A, and corrected inference across all 15 scored endpoint pairs.
+- Published a separate preview companion bundle. Gemini 3.1 Pro Preview
+  recorded 39.78% operational goodput (95% interval 16.67% to 65.11%), 100%
+  availability, and 15/15 completed cells; Qwen 3.8 Max Preview remains N/A.
+- Added fail-closed catalog auditing, immutable-identity panel freezing,
+  frontier aggregate exporters, generated handouts, provenance hashes, privacy
+  checks, and release verification for both frontier publications.
+- Added one-shot serial recovery for a missing successful-answer judgment. It
+  regrades only the missing local judgment, never replays provider inference,
+  and still fails closed if the objective record remains incomplete.
+- Added the frontier handouts, aggregate JSON/CSV/Markdown files, and uniquely
+  named bundle checksum manifests to tagged GitHub release assets.
+
+### Scientific status
+
+- The GA and preview-companion executions remain frozen at execution software
+  version `1.0.2`; this `v1.0.3` tag is their publication release. The earlier
+  35-endpoint catalog pilot remains frozen at execution software `1.0.0`.
+- The preview companion contains exactly one scored endpoint, so it has no
+  ordinal rank or pairwise comparison. It is not pooled with the GA table.
+- GPT-5.6 Sol had the highest GA point estimate, but its paired comparison with
+  the GPT-5.5 baseline did not establish a difference or practical
+  equivalence. The small English-oriented, one-generation study is not a
+  universal ranking, certification, or evidence of global acceptance.
+- No frozen GA or preview-companion aggregate, generated handout, or nested
+  checksum-manifest byte was changed by the publication-version update.
+
 ## [1.0.2] - 2026-08-08
 
 ### Corrected
@@ -86,6 +122,7 @@ round identifiers.
 - None of 595 paired comparisons is significant after Holm correction. The
   published row order must not be interpreted as a resolved universal rank.
 
+[1.0.3]: https://github.com/Kendr-AI/LLM-Benchmark/releases/tag/v1.0.3
 [1.0.2]: https://github.com/Kendr-AI/LLM-Benchmark/releases/tag/v1.0.2
 [1.0.1]: https://github.com/Kendr-AI/LLM-Benchmark/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Kendr-AI/LLM-Benchmark/releases/tag/v1.0.0

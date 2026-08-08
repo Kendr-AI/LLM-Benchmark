@@ -1,0 +1,166 @@
+{
+  "schema_version": "1.0",
+  "project": "LLM Benchmark Protocol",
+  "protocol_profile": "KGBP-1.0",
+  "campaign_type": "current-frontier-preview-companion",
+  "scientific_status": "Descriptive endpoint-as-served preview companion; separate from and not comparable as a rank against the GA leaderboard.",
+  "matrix_id": "20260808T083825Z-frontier-preview-kendr-20260808-d910f1e1",
+  "generated_at": "2026-08-08T08:42:39.681536+00:00",
+  "profile_id": "kendr-current-frontier-20260808",
+  "snapshot_date": "2026-08-08",
+  "cohort": {
+    "id": "preview-companion",
+    "claim_class": "preview-or-limited-access"
+  },
+  "livebench_release": "2026-06-25",
+  "sample": {
+    "mode": "seeded-random",
+    "seed": 20260807,
+    "content_hash": "e42e19a89dad2431964c639ef53a04df90c14a7b31b3f7d925b02712d2bfcef6",
+    "content_hash_algorithm": "sha256",
+    "questions": 15,
+    "tasks": [
+      "live_bench/data_analysis/tablejoin",
+      "live_bench/instruction_following/summarize",
+      "live_bench/language/connections",
+      "live_bench/math/math_comp",
+      "live_bench/reasoning/zebra_puzzle"
+    ],
+    "questions_per_task": 3,
+    "selected_date_distribution": {
+      "2024-06-24": 6,
+      "2024-11-25": 9
+    },
+    "generations_per_endpoint_question": 1
+  },
+  "execution_configuration": {
+    "requested_max_output_tokens": 2048,
+    "deadline_ms": 120000,
+    "max_cost_usd_per_answer": null,
+    "parallel_requests": 2,
+    "parallel_grading": 4,
+    "requested_reasoning_effort": "none"
+  },
+  "execution_software": {
+    "package": "llm-benchmark-protocol",
+    "version": "1.0.2",
+    "source_repository": "https://github.com/Kendr-AI/LLM-Benchmark",
+    "source_commit": "33ea04dc78f4f2fb50fb45c822a245bcbd686d38",
+    "source_worktree_dirty": false
+  },
+  "scope": {
+    "companion_profile_entries": 2,
+    "scored_companion_entries": 1,
+    "not_measured_companion_entries": 1,
+    "ga_or_baseline_entries": 0
+  },
+  "ranking": {
+    "status": "single-scored-endpoint-descriptive-no-rank",
+    "scope": "No rank is assigned because this dated campaign permits exactly one scored preview-companion endpoint. GA and baseline endpoints are excluded."
+  },
+  "n_a_policy": "Audit-ineligible companion entries use null metrics and render as N/A. A scheduled endpoint with complete zero-goodput evidence remains a scored zero.",
+  "pairwise_inference": {
+    "family_scope": "No pairwise family: this dated preview companion campaign has exactly one scored endpoint and excludes every GA and baseline endpoint.",
+    "comparisons": 0,
+    "interpretation": "No ranking or pairwise inference is defined for a one-endpoint campaign.",
+    "tests": []
+  },
+  "claim_readiness": {
+    "companion_claim_ready": false,
+    "claim_separation": "Preview and limited-access companion results must be reported separately and must not be pooled into core GA claims."
+  },
+  "rows": [
+    {
+      "display_order": 1,
+      "cohort": "preview-companion",
+      "claim_class": "preview-or-limited-access",
+      "role": "candidate",
+      "benchmark_status": "scored",
+      "catalog_status": "present",
+      "endpoint_id": "kc-gemini-3.1-pro-preview",
+      "vendor_model_id": "gemini-3.1-pro-preview",
+      "endpoint_label": "Gemini 3.1 Pro Preview",
+      "configuration_label": "Gemini 3.1 Pro Preview (Kendr served preview companion)",
+      "configuration_access": "Kendr API managed Google preview route; separate preview companion cohort",
+      "license": "Proprietary provider terms",
+      "license_source": "https://ai.google.dev/gemini-api/terms",
+      "questions_scored": 15,
+      "operational_goodput": 0.3977777777777778,
+      "operational_goodput_ci95_low": 0.16666666666666666,
+      "operational_goodput_ci95_high": 0.6511111111111111,
+      "quality_score": 0.3977777777777778,
+      "quality_ci95_low": 0.15555555555555556,
+      "quality_ci95_high": 0.64,
+      "conditional_quality_score": 0.3977777777777778,
+      "availability": 1.0,
+      "successful_answers": 15,
+      "failed_answers": 0,
+      "missing_answers": 0,
+      "latency_p50_ms": 16220.768400002271,
+      "latency_p95_ms": 20625.24208005052,
+      "cost_usd": "0.34721928",
+      "cost_is_lower_bound": false,
+      "data_analysis_score": 0.9333333333333332,
+      "instruction_following_score": 0.05555555555555555,
+      "language_score": 0.3333333333333333,
+      "math_score": 0.3333333333333333,
+      "reasoning_score": 0.3333333333333333,
+      "n_a_reason_code": null,
+      "n_a_reason": null
+    },
+    {
+      "display_order": 2,
+      "cohort": "preview-companion",
+      "claim_class": "preview-or-limited-access",
+      "role": "candidate",
+      "benchmark_status": "not_measured",
+      "catalog_status": "missing",
+      "endpoint_id": "kc-qwen3.8-max-preview",
+      "vendor_model_id": "qwen3.8-max-preview",
+      "endpoint_label": "Qwen 3.8 Max Preview",
+      "configuration_label": null,
+      "configuration_access": null,
+      "license": null,
+      "license_source": null,
+      "questions_scored": null,
+      "operational_goodput": null,
+      "operational_goodput_ci95_low": null,
+      "operational_goodput_ci95_high": null,
+      "quality_score": null,
+      "quality_ci95_low": null,
+      "quality_ci95_high": null,
+      "conditional_quality_score": null,
+      "availability": null,
+      "successful_answers": null,
+      "failed_answers": null,
+      "missing_answers": null,
+      "latency_p50_ms": null,
+      "latency_p95_ms": null,
+      "cost_usd": null,
+      "cost_is_lower_bound": null,
+      "data_analysis_score": null,
+      "instruction_following_score": null,
+      "language_score": null,
+      "math_score": null,
+      "reasoning_score": null,
+      "n_a_reason_code": "missing",
+      "n_a_reason": "The exact preview route is staged fail-closed, but it requires a dedicated paid Model Studio Token Plan endpoint and credential that are not configured."
+    }
+  ],
+  "provenance": {
+    "catalog_sha256": "e7c61de227223aad5e4531044c792e0ecb5ac11d4796c0f2bd6491a3d96de7b0",
+    "coverage_audit_sha256": "365882eaccd5e7db1c2e1bb65fcfe6b312b8e51257c5ffe3e42a57e4b61f81f6",
+    "execution_panel_sha256": "ca0fa4b4b1e4b5b4002755d03b2debf154d34c7906d2a5f40fd51b085d185f8a",
+    "matrix_catalog_file_sha256": "5924bcb0ecf640a9cba4d5e825f0b2eb057575e5235c0f19949485226567c8dc",
+    "matrix_leaderboard_sha256": "57d39cacaab8bb199ade5daf983671e1bb532c1ab32f361741f55b04c84c22d9",
+    "matrix_manifest_sha256": "df3669c6f39e5967072f32cb93794f3ad22a19c7d7b6aeecf74f659a42f5b2c5",
+    "profile_sha256": "a0dcfee9ea22ab518b982577c9e790509b9d2efba62c02afaaabf59aacfd8b38"
+  },
+  "privacy_review": {
+    "raw_prompts_included": false,
+    "raw_responses_included": false,
+    "provider_request_ids_included": false,
+    "provider_error_messages_included": false,
+    "local_paths_included": false
+  }
+}

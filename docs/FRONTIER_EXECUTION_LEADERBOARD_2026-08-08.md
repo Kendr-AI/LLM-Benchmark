@@ -17,17 +17,19 @@ certification, standards-body decision, or proof of intrinsic model capability.
 
 Five generally available candidates were scored and ranked. GPT-5.5 was scored
 only as a declared historical baseline and is not assigned a candidate rank.
-Six additional GA coverage targets and two preview/limited-access targets were
-not measured. N/A is not zero: those configurations never entered the scored
-denominator because their identity, access, maturity, or cohort gate was not
-satisfied.
+Six additional GA coverage targets were not measured. The GA matrix also left
+both preview targets outside its denominator; a separately frozen companion
+matrix subsequently measured Gemini 3.1 Pro Preview while retaining Qwen 3.8
+Max Preview as N/A. N/A is not zero: those configurations never entered the
+relevant scored denominator because their identity, access, maturity, or
+cohort gate was not satisfied.
 
 | Frozen field | Value |
 |---|---|
 | Profile entries | 14 |
 | Core GA candidates | 11: five scored, six N/A |
 | Baseline | One scored, unranked GPT-5.5 endpoint |
-| Preview companion | Two entries, both unranked and N/A |
+| Preview companion | Two separate entries: Gemini 3.1 Pro Preview scored descriptively with no rank; Qwen 3.8 Max Preview N/A |
 | Sample | 15 items: three each from five LiveBench task strata |
 | Item dates | Six from 2024-06-24; nine from 2024-11-25 |
 | Generations | One per scored endpoint-item cell |
@@ -36,6 +38,7 @@ satisfied.
 | Requested reasoning-effort field | `none`; provider defaults were not normalized |
 | Execution software | `llm-benchmark-protocol 1.0.2` |
 | Source identity | commit `12ae34e5ffbd1a461b7c85819d3c16fce34bb97f`; clean worktree |
+| Companion source identity | commit `33ea04dc78f4f2fb50fb45c822a245bcbd686d38`; clean worktree |
 
 ## Ranked GA candidates
 
@@ -120,14 +123,21 @@ frozen schedule.
 
 ## Preview and limited-access companion
 
-| Preview target | Frozen state | Treatment |
+The separate companion matrix is
+`20260808T083825Z-frontier-preview-kendr-20260808-d910f1e1`. It used the same
+15 question IDs and sample hash as the GA matrix, but it is not pooled into or
+ranked against the GA candidates.
+
+| Preview target | Companion outcome | Treatment |
 |---|---|---|
-| Qwen 3.8 Max Preview — `kc-qwen3.8-max-preview` | Missing from the frozen callable catalog; staged integration requires the dedicated paid Token Plan endpoint and credential | N/A; not pooled into GA ranks |
-| Gemini 3.1 Pro Preview — `kc-gemini-3.1-pro-preview` | Present and preflighted, but classified as preview | N/A; intentionally not scheduled in the GA matrix |
+| Gemini 3.1 Pro Preview — `kc-gemini-3.1-pro-preview` | 39.78% operational goodput; 95% interval 16.67%–65.11%; 100% availability; 15/15 successful | Descriptive single-endpoint result; no ordinal rank |
+| Qwen 3.8 Max Preview — `kc-qwen3.8-max-preview` | Missing from the frozen callable catalog; staged integration requires the dedicated paid Token Plan endpoint and credential | N/A; not scored and not pooled into GA ranks |
 
 Separating preview from GA prevents a changing or limited-access configuration
 from silently influencing a production-model claim. The frozen audit therefore
-reports both the GA and companion cohorts as not fully claim-ready.
+reports the companion cohort as not fully claim-ready because Qwen remained
+unavailable. The companion publication contains zero GA or baseline endpoints
+and assigns no rank to its single scored row.
 
 ## What this snapshot supports
 
@@ -138,6 +148,12 @@ Supported wording:
 > candidates. Two of 15 endpoint pairs separated after Holm correction. The
 > sample was small, and GPT-5.6 Sol did not separate from the unranked GPT-5.5
 > baseline.
+
+Supported companion wording:
+
+> In a separate preview companion run on the same 15 frozen items, Gemini 3.1
+> Pro Preview had 39.78% operational goodput and 100% availability. It was the
+> only scored preview endpoint, so no rank or GA comparison was assigned.
 
 Unsupported wording includes “best model globally,” “all frontier models were
 tested,” “N/A models scored zero,” “GPT-5.6 proved superior to GPT-5.5,” or
@@ -169,11 +185,15 @@ tested,” “N/A models scored zero,” “GPT-5.6 proved superior to GPT-5.5,�
 - [Sanitized aggregate CSV](data/frontier-2026-08-08/kendr-frontier-leaderboard-2026-08-08.csv)
 - [Generated bundle handout](data/frontier-2026-08-08/kendr-frontier-leaderboard-2026-08-08.md)
 - [Bundle-local SHA-256 manifest](data/frontier-2026-08-08/SHA256SUMS)
+- [Preview companion aggregate JSON](data/frontier-preview-2026-08-08/kendr-frontier-preview-companion-2026-08-08.json)
+- [Preview companion aggregate CSV](data/frontier-preview-2026-08-08/kendr-frontier-preview-companion-2026-08-08.csv)
+- [Preview companion handout](data/frontier-preview-2026-08-08/kendr-frontier-preview-companion-2026-08-08.md)
+- [Preview companion SHA-256 manifest](data/frontier-preview-2026-08-08/SHA256SUMS)
 - [Dated market and Kendr coverage register](FRONTIER_MODEL_COVERAGE_2026-08-08.md)
 
 The public artifacts include aggregate metrics, exact public endpoint IDs,
-catalog/profile/manifest hashes, execution software `1.0.2`, and source commit
-`12ae34e5ffbd1a461b7c85819d3c16fce34bb97f`. They exclude raw prompts, raw
-responses, provider request IDs, provider error messages, credentials, and
-machine-local paths. SHA-256 detects drift; it does not authenticate the
-publisher or substitute for independent review.
+catalog/profile/manifest hashes, execution software `1.0.2`, and the recorded
+GA and companion source commits. They exclude raw prompts, raw responses,
+provider request IDs, provider error messages, credentials, and machine-local
+paths. SHA-256 detects drift; it does not authenticate the publisher or
+substitute for independent review.

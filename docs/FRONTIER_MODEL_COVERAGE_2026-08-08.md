@@ -108,6 +108,14 @@ Optional coverage baselines for a full global campaign are Anthropic Claude Sonn
 | Claude Sonnet 5 baseline | `claude-sonnet-5` | `staged` | `kc-claude-sonnet-5` | 2026-08-08T04:48:00Z | Catalog alias exists, but no fresh successful preflight was captured for this campaign. |
 | MiniMax M3 baseline | `MiniMax-M3` | `missing` | — | 2026-08-08T04:48:00Z | No Kendr connector or route was present. |
 
+Execution supplement: the separately frozen preview matrix
+`20260808T083825Z-frontier-preview-kendr-20260808-d910f1e1` ran Gemini 3.1 Pro
+Preview on the same 15 exact question IDs and sample hash as the GA matrix. It
+recorded 39.78% operational goodput (95% interval 16.67%–65.11%) and 100%
+availability, with no ordinal rank because it was the only scored preview
+endpoint. Qwen 3.8 Max Preview remained N/A. See the
+[privacy-reviewed companion handout](data/frontier-preview-2026-08-08/kendr-frontier-preview-companion-2026-08-08.md).
+
 For a `live` designation, archive the catalog response hash and demonstrate one successful, identity-resolved, telemetry-complete preflight. `staged` means the adapter/configuration exists but the endpoint has not passed that preflight. `missing` means the authenticated catalog exposes no appropriate route. A failed endpoint is not a zero-capability model; it is an operational failure that belongs in the availability/goodput analysis.
 
 ## 6. Freeze checklist for the next campaign

@@ -42,7 +42,7 @@ def test_execution_software_provenance_records_commit_and_dirty_boolean(tmp_path
 
     clean = _execution_software_provenance(tmp_path)
     assert clean["package"] == "llm-benchmark-protocol"
-    assert clean["version"] == "1.0.2"
+    assert clean["version"] == "1.0.3"
     assert clean["source_commit"] == _git(tmp_path, "rev-parse", "HEAD")
     assert clean["source_worktree_dirty"] is False
 

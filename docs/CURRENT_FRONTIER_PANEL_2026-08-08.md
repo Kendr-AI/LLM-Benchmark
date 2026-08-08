@@ -31,12 +31,19 @@ It contains the five core-GA candidates that passed exact-identity preflight
 through Kendr—Claude Opus 5, GPT-5.6 Sol, Grok 4.5, the dated DeepSeek V4
 Flash 0731 route, and Gemini 3.6 Flash—plus GPT-5.5 as the declared baseline.
 
+The separately frozen preview panel is
+[`config/kendr-frontier-preview-execution-panel-20260808.json`](../config/kendr-frontier-preview-execution-panel-20260808.json).
+It contains only Gemini 3.1 Pro Preview. Qwen 3.8 Max Preview failed the
+callable identity/access gate and therefore remains visible as N/A rather than
+being assigned a zero.
+
 This panel is a callable subset, not a redefinition of the coverage universe.
-Every other core or companion entry remains in the publication as N/A with a
-machine-readable reason. The matrix labels these endpoints “Kendr served
-default”: the harness does not claim that heterogeneous provider-side effort
-settings were normalized or that each model ran at a third-party
-leaderboard's `max` or `xhigh` configuration.
+Every other core entry and the unavailable Qwen companion remain in the
+publication as N/A with a machine-readable reason. The matrices label these
+endpoints “Kendr served default” or “Kendr served preview companion”: the
+harness does not claim that heterogeneous provider-side effort settings were
+normalized or that each model ran at a third-party leaderboard's `max` or
+`xhigh` configuration.
 
 ## Executed snapshot
 
@@ -50,6 +57,17 @@ with privacy-reviewed aggregates in [JSON](data/frontier-2026-08-08/kendr-fronti
 [Markdown](data/frontier-2026-08-08/kendr-frontier-leaderboard-2026-08-08.md).
 Only two of the 15 paired comparisons separated after Holm correction; the
 printed order must therefore remain descriptive.
+
+The preview panel was executed separately as matrix
+`20260808T083825Z-frontier-preview-kendr-20260808-d910f1e1`. It reused the
+same 15 exact question IDs and sample hash as the GA matrix. All 15 answers and
+15 judgments are present. Gemini 3.1 Pro Preview recorded 39.78% operational
+goodput (95% interval 16.67%–65.11%) with 100% availability. Because it was
+the only scored preview endpoint, no ordinal rank or GA comparison is assigned.
+The privacy-reviewed companion artifacts are available as
+[JSON](data/frontier-preview-2026-08-08/kendr-frontier-preview-companion-2026-08-08.json),
+[CSV](data/frontier-preview-2026-08-08/kendr-frontier-preview-companion-2026-08-08.csv), and
+[Markdown](data/frontier-preview-2026-08-08/kendr-frontier-preview-companion-2026-08-08.md).
 
 ## Offline coverage audit
 

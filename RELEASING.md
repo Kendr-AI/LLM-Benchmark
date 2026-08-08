@@ -29,19 +29,21 @@ Run the offline release verifier from the repository root before creating the
 release commit:
 
 ```bash
-python scripts/verify_release.py --expected-version 1.0.2
+python scripts/verify_release.py --expected-version 1.0.3
 ```
 
 It checks required release and governance files, package/module/citation
 versions, internal Markdown links, JSON and JSON Schema validity, the sanitized
-public ranking row counts and checksums, package resource declarations, and Git
-release-candidate paths for raw artifacts or common credential signatures. It
-does not contact providers, mutate Git state, create a tag, or publish files.
+catalog, frontier-GA, and preview-companion scopes, provenance, privacy fields,
+content, and checksums, package resource declarations, required GitHub release
+assets, and Git release-candidate paths for raw artifacts or common credential
+signatures. It does not contact providers, mutate Git state, create a tag, or
+publish files.
 
 The tag workflow supplies the candidate tag explicitly:
 
 ```bash
-python scripts/verify_release.py --tag v1.0.2
+python scripts/verify_release.py --tag v1.0.3
 ```
 
 The tag must exactly equal `v` followed by `project.version`. A passing verifier
@@ -56,6 +58,9 @@ The GitHub release must contain or link to:
 - the technical white paper PDF;
 - the privacy-reviewed ranking Markdown, JSON, and CSV;
 - `SHA256SUMS` for the public data exports;
+- the current-frontier execution, coverage, and paired-analysis handouts;
+- the frontier-GA and preview-companion JSON, CSV, generated Markdown, and
+  uniquely named nested checksum manifests;
 - the wheel and source distribution produced from the tagged commit;
 - a CycloneDX runtime SBOM and release-wide checksums;
 - release notes that preserve the pilot's scientific limitations.

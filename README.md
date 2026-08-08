@@ -19,9 +19,10 @@ classification, uncertainty, operational failures, evidence lineage, and
 governance part of the benchmark rather than afterthoughts.
 
 KGBP 1.0 is the repository's fully specified reference profile. The current
-software release is `1.0.2`; the protocol profile remains KGBP 1.0, and the
-frozen pilot correctly retains its original `1.0.0` execution provenance.
-Software, profile, and benchmark campaign IDs are versioned independently.
+software release is `1.0.3`; the protocol profile remains KGBP 1.0. The frozen
+catalog pilot retains its original `1.0.0` execution provenance, while the
+dated GA and preview-companion frontier runs retain `1.0.2`. Software,
+profile, publication, and benchmark campaign IDs are versioned independently.
 
 > [!IMPORTANT]
 > This is a **research release**, not an ISO standard, certification program,
@@ -101,7 +102,7 @@ schedule and an optional one-call paid smoke test.
 Install from a tagged source archive or a clone:
 
 ```bash
-python -m pip install "llm-benchmark-protocol @ git+https://github.com/Kendr-AI/LLM-Benchmark.git@v1.0.2"
+python -m pip install "llm-benchmark-protocol @ git+https://github.com/Kendr-AI/LLM-Benchmark.git@v1.0.3"
 ```
 
 The wheel carries its default cases, pricing data, constraints, example
@@ -175,8 +176,9 @@ goodput as the primary metric.
 GPT-5.5 was a declared comparison baseline, not a frontier candidate, and is
 therefore unranked: its observed goodput was 68.9% with 73.3% availability.
 Six other GA coverage targets were N/A rather than zero because they were not
-callable under the frozen identity and access gates; two preview entries were
-kept in a separate, unranked companion cohort.
+callable under the frozen identity and access gates. Preview configurations
+were kept in a separate companion cohort and were never pooled into the GA
+rank sequence.
 
 The six scored endpoints produced 15 paired comparisons. Only two separated
 after Holm family-wise correction at 5%: GPT-5.6 Sol versus DeepSeek V4 Flash
@@ -185,14 +187,28 @@ GPT-5.5 baseline by 10.4667 percentage points in the point estimate, but its
 paired interval was [−2.6667, +28.7333] points (`p = 0.5`, Holm-adjusted
 `p = 1.0`), establishing neither a difference nor practical equivalence.
 
+A separately frozen companion matrix used the same 15 question IDs and sample
+hash. Gemini 3.1 Pro Preview completed all 15 cells with **39.78%** operational
+goodput (95% interval **16.67%–65.11%**) and **100%** availability. Because it
+was the only callable preview endpoint, it receives no ordinal rank and is not
+compared with the GA table. Qwen 3.8 Max Preview remains N/A because its
+dedicated paid Token Plan endpoint and credential were not configured.
+
 See the [frontier execution handout](docs/FRONTIER_EXECUTION_LEADERBOARD_2026-08-08.md)
 for the complete N/A register, corrected inference, methods, and limitations.
 The sanitized aggregates are available as
 [JSON](docs/data/frontier-2026-08-08/kendr-frontier-leaderboard-2026-08-08.json)
 and [CSV](docs/data/frontier-2026-08-08/kendr-frontier-leaderboard-2026-08-08.csv),
 with a bundle-local [SHA-256 manifest](docs/data/frontier-2026-08-08/SHA256SUMS).
-The exact matrix ID is
+The GA matrix ID is
 `20260808T070202Z-frontier-market-kendr-20260808-cfec3672`.
+The separate companion aggregates are available as
+[JSON](docs/data/frontier-preview-2026-08-08/kendr-frontier-preview-companion-2026-08-08.json),
+[CSV](docs/data/frontier-preview-2026-08-08/kendr-frontier-preview-companion-2026-08-08.csv),
+and [Markdown](docs/data/frontier-preview-2026-08-08/kendr-frontier-preview-companion-2026-08-08.md),
+with their own [SHA-256 manifest](docs/data/frontier-preview-2026-08-08/SHA256SUMS).
+Its matrix ID is
+`20260808T083825Z-frontier-preview-kendr-20260808-d910f1e1`.
 
 > [!CAUTION]
 > These are endpoint-as-served point estimates from a small English-oriented,
@@ -260,9 +276,10 @@ and [CSV](docs/data/kendr-catalog-pilot-2026-08-08.csv), with a
 | Review common questions and claim boundaries | [FAQ](docs/FAQ.md) |
 | Review the dated current-frontier coverage decision | [Frontier model coverage](docs/FRONTIER_MODEL_COVERAGE_2026-08-08.md) |
 | Inspect the current-frontier callable-subset results | [Frontier execution leaderboard](docs/FRONTIER_EXECUTION_LEADERBOARD_2026-08-08.md) |
+| Inspect the separate preview companion result | [Frontier preview companion](docs/data/frontier-preview-2026-08-08/kendr-frontier-preview-companion-2026-08-08.md) |
 | Understand GPT-5.6 Sol versus the GPT-5.5 baseline | [Paired comparison analysis](docs/GPT_5_6_VS_5_5_ANALYSIS_2026-08-08.md) |
 | Inspect the empirical pilot | [35-endpoint rankings](docs/RANKINGS_2026-08-08.md) |
-| Review release changes and verification | [Release notes](docs/RELEASE_NOTES_v1.0.2.md) and [release process](RELEASING.md) |
+| Review release changes and verification | [Release notes](docs/RELEASE_NOTES_v1.0.3.md) and [release process](RELEASING.md) |
 
 Reusable system-card, benchmark-card, preregistration, deviation-log, and
 threat-model files are under [`templates`](templates).
@@ -300,9 +317,10 @@ Security issues should follow [SECURITY.md](SECURITY.md), not a public issue.
 ## Citation, license, and status
 
 Citation metadata is in [CITATION.cff](CITATION.cff). Cite both release
-`v1.0.2` and the exact matrix ID when reusing the pilot results. The pilot's
-recorded execution-software version remains `1.0.0` because this patch does not
-retroactively relabel the frozen experiment.
+`v1.0.3` and the exact matrix ID for the result set being reused. The catalog
+pilot retains execution-software version `1.0.0`; the dated GA and preview
+companion matrices retain `1.0.2`. Publication does not retroactively relabel
+any frozen execution.
 
 Researcher and project-stewardship information is documented in
 [AUTHORS.md](AUTHORS.md). The researcher is **Dr. Prashant Kumar Dey**, and the

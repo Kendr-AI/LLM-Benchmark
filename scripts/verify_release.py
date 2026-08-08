@@ -35,7 +35,41 @@ FRONTIER_MATRIX_ID = (
     "20260808T070202Z-frontier-market-kendr-20260808-cfec3672"
 )
 FRONTIER_DATA_RELATIVE = Path("docs/data/frontier-2026-08-08")
+FRONTIER_COMPANION_RESULTS_STEM = (
+    "kendr-frontier-preview-companion-2026-08-08"
+)
+FRONTIER_COMPANION_MATRIX_ID = (
+    "20260808T083825Z-frontier-preview-kendr-20260808-d910f1e1"
+)
+FRONTIER_COMPANION_DATA_RELATIVE = Path(
+    "docs/data/frontier-preview-2026-08-08"
+)
+FRONTIER_COMPANION_SOURCE_COMMIT = (
+    "33ea04dc78f4f2fb50fb45c822a245bcbd686d38"
+)
+FRONTIER_COMPANION_PROVENANCE = {
+    "catalog_sha256": "e7c61de227223aad5e4531044c792e0ecb5ac11d4796c0f2bd6491a3d96de7b0",
+    "coverage_audit_sha256": "365882eaccd5e7db1c2e1bb65fcfe6b312b8e51257c5ffe3e42a57e4b61f81f6",
+    "execution_panel_sha256": "ca0fa4b4b1e4b5b4002755d03b2debf154d34c7906d2a5f40fd51b085d185f8a",
+    "matrix_catalog_file_sha256": "5924bcb0ecf640a9cba4d5e825f0b2eb057575e5235c0f19949485226567c8dc",
+    "matrix_leaderboard_sha256": "57d39cacaab8bb199ade5daf983671e1bb532c1ab32f361741f55b04c84c22d9",
+    "matrix_manifest_sha256": "df3669c6f39e5967072f32cb93794f3ad22a19c7d7b6aeecf74f659a42f5b2c5",
+    "profile_sha256": "a0dcfee9ea22ab518b982577c9e790509b9d2efba62c02afaaabf59aacfd8b38",
+}
+FRONTIER_COMPANION_ARTIFACT_SHA256 = {
+    f"{FRONTIER_COMPANION_RESULTS_STEM}.csv": (
+        "2801dbbe5c15cc4fb95745b334f8898f573f5ad8b178e57da0c5f9e1c1cbae60"
+    ),
+    f"{FRONTIER_COMPANION_RESULTS_STEM}.json": (
+        "d71fd8df6de37ff6d43be7013815fbdbe16ec024e9a2b8d7fdc0b317b25fc1dd"
+    ),
+    f"{FRONTIER_COMPANION_RESULTS_STEM}.md": (
+        "91b20062da050f530847c7d4e18042657465d7355f3100bffac5ca87b509b434"
+    ),
+}
 PILOT_EXECUTION_VERSION = "1.0.0"
+FRONTIER_EXECUTION_VERSION = "1.0.2"
+FRONTIER_COMPANION_EXECUTION_VERSION = "1.0.2"
 LOGO_RELATIVE_PATH = Path("assets/brand/kendr-mark-ink-512.png")
 LEGACY_DISPLAY_BRAND = "Kendr" + " " + "AI"
 CANONICAL_PDF_PALETTE = {
@@ -48,6 +82,23 @@ LEGACY_PDF_PALETTE = {
     "navy": (17, 35, 63),
     "blue": (22, 102, 217),
     "cyan": (32, 164, 184),
+}
+REQUIRED_FRONTIER_RELEASE_ASSETS = {
+    "docs/FRONTIER_EXECUTION_LEADERBOARD_2026-08-08.md": "release-assets/",
+    "docs/FRONTIER_MODEL_COVERAGE_2026-08-08.md": "release-assets/",
+    "docs/GPT_5_6_VS_5_5_ANALYSIS_2026-08-08.md": "release-assets/",
+    "docs/data/frontier-2026-08-08/kendr-frontier-leaderboard-2026-08-08.json": "release-assets/",
+    "docs/data/frontier-2026-08-08/kendr-frontier-leaderboard-2026-08-08.csv": "release-assets/",
+    "docs/data/frontier-2026-08-08/kendr-frontier-leaderboard-2026-08-08.md": "release-assets/",
+    "docs/data/frontier-2026-08-08/SHA256SUMS": (
+        "release-assets/frontier-2026-08-08-SHA256SUMS"
+    ),
+    "docs/data/frontier-preview-2026-08-08/kendr-frontier-preview-companion-2026-08-08.json": "release-assets/",
+    "docs/data/frontier-preview-2026-08-08/kendr-frontier-preview-companion-2026-08-08.csv": "release-assets/",
+    "docs/data/frontier-preview-2026-08-08/kendr-frontier-preview-companion-2026-08-08.md": "release-assets/",
+    "docs/data/frontier-preview-2026-08-08/SHA256SUMS": (
+        "release-assets/frontier-preview-2026-08-08-SHA256SUMS"
+    ),
 }
 
 REQUIRED_FILES = (
@@ -80,6 +131,7 @@ REQUIRED_FILES = (
     "config/global-protocol-v1.schema.json",
     "config/kendr-current-frontier-profile-20260808.json",
     "config/kendr-frontier-execution-panel-20260808.json",
+    "config/kendr-frontier-preview-execution-panel-20260808.json",
     "docs/ADOPTION_GUIDE.md",
     "docs/APPEALS_AND_CORRECTIONS.md",
     "docs/CURRENT_FRONTIER_PANEL_2026-08-08.md",
@@ -112,6 +164,19 @@ REQUIRED_FILES = (
         / f"{FRONTIER_RESULTS_STEM}.md"
     ).as_posix(),
     (FRONTIER_DATA_RELATIVE / "SHA256SUMS").as_posix(),
+    (
+        FRONTIER_COMPANION_DATA_RELATIVE
+        / f"{FRONTIER_COMPANION_RESULTS_STEM}.csv"
+    ).as_posix(),
+    (
+        FRONTIER_COMPANION_DATA_RELATIVE
+        / f"{FRONTIER_COMPANION_RESULTS_STEM}.json"
+    ).as_posix(),
+    (
+        FRONTIER_COMPANION_DATA_RELATIVE
+        / f"{FRONTIER_COMPANION_RESULTS_STEM}.md"
+    ).as_posix(),
+    (FRONTIER_COMPANION_DATA_RELATIVE / "SHA256SUMS").as_posix(),
     "examples/README.md",
     "examples/expected/toy-scorecards-summary.json",
     "examples/toy-observations.jsonl",
@@ -119,6 +184,7 @@ REQUIRED_FILES = (
     "output/pdf/LLM_Benchmark_Protocol_1_0_White_Paper.pdf",
     "output/pdf/LLM_Benchmark_Protocol_1_0_White_Paper.resolved.md",
     "pyproject.toml",
+    "scripts/export_frontier_companion_results.py",
     "src/kendr_bench/__init__.py",
     "templates/benchmark-card.md",
     "templates/deviation-log.csv",
@@ -265,6 +331,28 @@ def check_required_files(root: Path, version: str) -> list[str]:
         elif path.stat().st_size == 0:
             problems.append(f"required file is empty: {relative}")
     problems.extend(_check_branding(root, version))
+    return problems
+
+
+def check_release_workflow_assets(root: Path) -> list[str]:
+    """Require the frozen frontier publications in tagged release assets."""
+
+    workflow_path = root / ".github/workflows/release-check.yml"
+    if not workflow_path.is_file():
+        return ["release workflow is missing"]
+    workflow = workflow_path.read_text(encoding="utf-8")
+    problems: list[str] = []
+    for source, destination in REQUIRED_FRONTIER_RELEASE_ASSETS.items():
+        command = f"cp {source} {destination}"
+        if command not in workflow:
+            problems.append(f"release workflow omits frontier asset command: {command}")
+    if (
+        "release-assets/frontier-2026-08-08-SHA256SUMS" not in workflow
+        or "release-assets/frontier-preview-2026-08-08-SHA256SUMS" not in workflow
+    ):
+        problems.append("release workflow must give nested SHA manifests unique names")
+    if "(cd release-assets && sha256sum * > SHA256SUMS)" not in workflow:
+        problems.append("release workflow omits the release-wide SHA256SUMS manifest")
     return problems
 
 
@@ -546,6 +634,17 @@ def _walk_keys(value: Any) -> Iterable[str]:
             yield from _walk_keys(child)
 
 
+def _walk_strings(value: Any) -> Iterable[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, Mapping):
+        for child in value.values():
+            yield from _walk_strings(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _walk_strings(child)
+
+
 def check_public_ranking(root: Path, version: str) -> list[str]:
     problems: list[str] = []
     data_dir = root / "docs/data"
@@ -709,10 +808,11 @@ def check_frontier_ranking(root: Path, version: str) -> list[str]:
     software = bundle.get("execution_software") or {}
     if software.get("package") != PROJECT_DISTRIBUTION:
         problems.append("frontier ranking execution package is incorrect")
-    if software.get("version") != version:
+    if software.get("version") != FRONTIER_EXECUTION_VERSION:
         problems.append(
             "frontier ranking execution version "
-            f"{software.get('version')!r} != release version {version!r}"
+            f"{software.get('version')!r} != frozen execution version "
+            f"{FRONTIER_EXECUTION_VERSION!r}; publication release is {version!r}"
         )
     if software.get("source_repository") != CANONICAL_REPOSITORY:
         problems.append("frontier ranking source repository is not canonical")
@@ -839,6 +939,419 @@ def check_frontier_ranking(root: Path, version: str) -> list[str]:
     for endpoint_id in scored_ids:
         if f"`{endpoint_id}`" not in handout:
             problems.append(f"frontier handout omits endpoint ID {endpoint_id!r}")
+    return problems
+
+
+def check_frontier_companion(root: Path, version: str) -> list[str]:
+    """Validate the separate, descriptive current-frontier preview bundle."""
+
+    problems: list[str] = []
+    data_dir = root / FRONTIER_COMPANION_DATA_RELATIVE
+    json_path = data_dir / f"{FRONTIER_COMPANION_RESULTS_STEM}.json"
+    csv_path = data_dir / f"{FRONTIER_COMPANION_RESULTS_STEM}.csv"
+    markdown_path = data_dir / f"{FRONTIER_COMPANION_RESULTS_STEM}.md"
+    checksum_path = data_dir / "SHA256SUMS"
+    profile_path = root / "config/kendr-current-frontier-profile-20260808.json"
+    panel_path = root / "config/kendr-frontier-preview-execution-panel-20260808.json"
+    public_surfaces = (
+        root / "README.md",
+        root / "docs/FRONTIER_EXECUTION_LEADERBOARD_2026-08-08.md",
+        root / "docs/CURRENT_FRONTIER_PANEL_2026-08-08.md",
+        root / "docs/FRONTIER_MODEL_COVERAGE_2026-08-08.md",
+    )
+    required = (
+        json_path,
+        csv_path,
+        markdown_path,
+        checksum_path,
+        profile_path,
+        panel_path,
+        *public_surfaces,
+    )
+    missing = [
+        path.relative_to(root).as_posix() for path in required if not path.is_file()
+    ]
+    if missing:
+        return ["frontier companion bundle is incomplete: " + ", ".join(missing)]
+
+    bundle = _read_json(json_path)
+    expected_identity = {
+        "schema_version": "1.0",
+        "project": PROJECT_TITLE,
+        "protocol_profile": "KGBP-1.0",
+        "campaign_type": "current-frontier-preview-companion",
+        "matrix_id": FRONTIER_COMPANION_MATRIX_ID,
+        "profile_id": "kendr-current-frontier-20260808",
+        "snapshot_date": "2026-08-08",
+        "livebench_release": "2026-06-25",
+    }
+    for key, expected in expected_identity.items():
+        if bundle.get(key) != expected:
+            problems.append(
+                f"frontier companion {key}={bundle.get(key)!r}, expected {expected!r}"
+            )
+    expected_cohort = {
+        "id": "preview-companion",
+        "claim_class": "preview-or-limited-access",
+    }
+    if bundle.get("cohort") != expected_cohort:
+        problems.append("frontier companion cohort identity is incorrect")
+
+    software = bundle.get("execution_software") or {}
+    expected_software = {
+        "package": PROJECT_DISTRIBUTION,
+        "version": FRONTIER_COMPANION_EXECUTION_VERSION,
+        "source_repository": CANONICAL_REPOSITORY,
+        "source_commit": FRONTIER_COMPANION_SOURCE_COMMIT,
+        "source_worktree_dirty": False,
+    }
+    if software != expected_software:
+        problems.append(
+            "frontier companion execution software/provenance identity is incorrect; "
+            f"execution remains {FRONTIER_COMPANION_EXECUTION_VERSION!r} while "
+            f"publication is {version!r}"
+        )
+
+    sample = bundle.get("sample") or {}
+    expected_tasks = [
+        "live_bench/data_analysis/tablejoin",
+        "live_bench/instruction_following/summarize",
+        "live_bench/language/connections",
+        "live_bench/math/math_comp",
+        "live_bench/reasoning/zebra_puzzle",
+    ]
+    expected_sample_fields = {
+        "mode": "seeded-random",
+        "seed": 20260807,
+        "content_hash_algorithm": "sha256",
+        "questions": 15,
+        "questions_per_task": 3,
+        "generations_per_endpoint_question": 1,
+    }
+    for key, expected in expected_sample_fields.items():
+        if sample.get(key) != expected:
+            problems.append(
+                f"frontier companion sample {key}={sample.get(key)!r}, "
+                f"expected {expected!r}"
+            )
+    if sample.get("tasks") != expected_tasks:
+        problems.append("frontier companion task strata changed")
+    if sample.get("selected_date_distribution") != {
+        "2024-06-24": 6,
+        "2024-11-25": 9,
+    }:
+        problems.append("frontier companion item-date distribution changed")
+    if not re.fullmatch(r"[0-9a-f]{64}", str(sample.get("content_hash") or "")):
+        problems.append("frontier companion sample content hash is not SHA-256")
+
+    execution_configuration = bundle.get("execution_configuration") or {}
+    expected_execution_configuration = {
+        "requested_max_output_tokens": 2048,
+        "deadline_ms": 120000,
+        "max_cost_usd_per_answer": None,
+        "parallel_requests": 2,
+        "parallel_grading": 4,
+        "requested_reasoning_effort": "none",
+    }
+    if execution_configuration != expected_execution_configuration:
+        problems.append("frontier companion execution configuration changed")
+
+    expected_scope = {
+        "companion_profile_entries": 2,
+        "scored_companion_entries": 1,
+        "not_measured_companion_entries": 1,
+        "ga_or_baseline_entries": 0,
+    }
+    if bundle.get("scope") != expected_scope:
+        problems.append(
+            "frontier companion scope must remain 2 entries: 1 scored, 1 N/A"
+        )
+    ranking = bundle.get("ranking") or {}
+    if ranking.get("status") != "single-scored-endpoint-descriptive-no-rank":
+        problems.append("frontier companion must retain descriptive no-rank status")
+    inference = bundle.get("pairwise_inference") or {}
+    if inference.get("comparisons") != 0 or inference.get("tests") != []:
+        problems.append("frontier companion must not contain pairwise tests")
+    readiness = bundle.get("claim_readiness") or {}
+    if readiness.get("companion_claim_ready") is not False:
+        problems.append("frontier companion must remain explicitly not claim-ready")
+
+    rows = bundle.get("rows")
+    if not isinstance(rows, list):
+        return [*problems, "frontier companion rows must be an array"]
+    if len(rows) != 2:
+        problems.append(f"frontier companion has {len(rows)} rows; expected 2")
+    row_objects = [row for row in rows if isinstance(row, Mapping)]
+    if len(row_objects) != len(rows):
+        problems.append("frontier companion rows must all be objects")
+    endpoint_ids = [str(row.get("endpoint_id") or "") for row in row_objects]
+    expected_endpoint_ids = [
+        "kc-gemini-3.1-pro-preview",
+        "kc-qwen3.8-max-preview",
+    ]
+    if endpoint_ids != expected_endpoint_ids:
+        problems.append("frontier companion endpoint identity/order changed")
+    if [row.get("display_order") for row in row_objects] != [1, 2]:
+        problems.append("frontier companion display order must remain 1, 2")
+
+    forbidden_rank_fields = {"rank", "companion_rank", "execution_rank", "tier"}
+    for index, row in enumerate(row_objects, 1):
+        exposed_rank_fields = sorted(set(row) & forbidden_rank_fields)
+        if exposed_rank_fields:
+            problems.append(
+                f"frontier companion row {index} exposes rank/tier fields: "
+                + ", ".join(exposed_rank_fields)
+            )
+        if row.get("cohort") != "preview-companion":
+            problems.append(f"frontier companion row {index} has the wrong cohort")
+        if row.get("claim_class") != "preview-or-limited-access":
+            problems.append(f"frontier companion row {index} has the wrong claim class")
+
+    rows_by_id = {str(row.get("endpoint_id")): row for row in row_objects}
+    gemini = rows_by_id.get("kc-gemini-3.1-pro-preview") or {}
+    expected_gemini = {
+        "vendor_model_id": "gemini-3.1-pro-preview",
+        "benchmark_status": "scored",
+        "catalog_status": "present",
+        "questions_scored": 15,
+        "operational_goodput": 0.3977777777777778,
+        "operational_goodput_ci95_low": 0.16666666666666666,
+        "operational_goodput_ci95_high": 0.6511111111111111,
+        "conditional_quality_score": 0.3977777777777778,
+        "availability": 1.0,
+        "successful_answers": 15,
+        "failed_answers": 0,
+        "missing_answers": 0,
+        "n_a_reason_code": None,
+        "n_a_reason": None,
+    }
+    for key, expected in expected_gemini.items():
+        if gemini.get(key) != expected:
+            problems.append(
+                f"Gemini companion {key}={gemini.get(key)!r}, expected {expected!r}"
+            )
+
+    qwen = rows_by_id.get("kc-qwen3.8-max-preview") or {}
+    if qwen.get("vendor_model_id") != "qwen3.8-max-preview":
+        problems.append("Qwen companion vendor identity changed")
+    if qwen.get("benchmark_status") != "not_measured":
+        problems.append("Qwen companion must remain not measured")
+    if qwen.get("catalog_status") != "missing":
+        problems.append("Qwen companion catalog status must remain missing")
+    if qwen.get("n_a_reason_code") != "missing":
+        problems.append("Qwen companion must retain the missing reason code")
+    expected_qwen_reason = (
+        "The exact preview route is staged fail-closed, but it requires a "
+        "dedicated paid Model Studio Token Plan endpoint and credential that "
+        "are not configured."
+    )
+    if qwen.get("n_a_reason") != expected_qwen_reason:
+        problems.append("Qwen companion N/A reason changed")
+    null_qwen_fields = (
+        "questions_scored",
+        "operational_goodput",
+        "operational_goodput_ci95_low",
+        "operational_goodput_ci95_high",
+        "quality_score",
+        "quality_ci95_low",
+        "quality_ci95_high",
+        "conditional_quality_score",
+        "availability",
+        "successful_answers",
+        "failed_answers",
+        "missing_answers",
+        "latency_p50_ms",
+        "latency_p95_ms",
+        "cost_usd",
+    )
+    non_null_qwen_fields = [
+        key for key in null_qwen_fields if qwen.get(key) is not None
+    ]
+    if non_null_qwen_fields:
+        problems.append(
+            "Qwen companion N/A row contains metrics: "
+            + ", ".join(non_null_qwen_fields)
+        )
+
+    provenance = bundle.get("provenance") or {}
+    for key, expected in FRONTIER_COMPANION_PROVENANCE.items():
+        if provenance.get(key) != expected:
+            problems.append(
+                f"frontier companion provenance {key}={provenance.get(key)!r}, "
+                f"expected {expected!r}"
+            )
+    if set(provenance) != set(FRONTIER_COMPANION_PROVENANCE):
+        problems.append("frontier companion provenance field set changed")
+    if provenance.get("profile_sha256") != _sha256(profile_path):
+        problems.append(
+            "frontier companion profile hash does not match the profile file"
+        )
+    if provenance.get("execution_panel_sha256") != _sha256(panel_path):
+        problems.append("frontier companion panel hash does not match the panel file")
+
+    privacy = bundle.get("privacy_review") or {}
+    privacy_fields = (
+        "raw_prompts_included",
+        "raw_responses_included",
+        "provider_request_ids_included",
+        "provider_error_messages_included",
+        "local_paths_included",
+    )
+    if set(privacy) != set(privacy_fields) or any(
+        privacy.get(key) is not False for key in privacy_fields
+    ):
+        problems.append(
+            "frontier companion privacy_review must explicitly exclude all "
+            "raw/private fields"
+        )
+    forbidden_keys = {
+        "answer",
+        "api_key",
+        "authorization",
+        "headers",
+        "prompt",
+        "provider_error_message",
+        "provider_request_id",
+        "raw_request",
+        "raw_response",
+        "response",
+    }
+    exposed = sorted({key.lower() for key in _walk_keys(bundle)} & forbidden_keys)
+    if exposed:
+        problems.append(
+            "frontier companion exposes forbidden fields: " + ", ".join(exposed)
+        )
+    local_path_patterns = (
+        re.compile(r"(?i)\bfile://"),
+        re.compile(r"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\[^\\/])"),
+        re.compile(r"(?<![A-Za-z0-9])/(?:Users|home|tmp|var/tmp)/"),
+    )
+    if any(
+        pattern.search(value)
+        for value in _walk_strings(bundle)
+        for pattern in local_path_patterns
+    ):
+        problems.append("frontier companion JSON exposes a machine-local path")
+
+    with csv_path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        csv_rows = list(reader)
+        csv_fields = set(reader.fieldnames or [])
+    if len(csv_rows) != 2:
+        problems.append(f"frontier companion CSV has {len(csv_rows)} rows; expected 2")
+    if [row.get("endpoint_id") for row in csv_rows] != expected_endpoint_ids:
+        problems.append("frontier companion CSV endpoint order does not match JSON")
+    exposed_csv_rank_fields = sorted(csv_fields & forbidden_rank_fields)
+    if exposed_csv_rank_fields:
+        problems.append(
+            "frontier companion CSV exposes rank/tier fields: "
+            + ", ".join(exposed_csv_rank_fields)
+        )
+    required_csv_fields = {
+        "display_order",
+        "benchmark_status",
+        "catalog_status",
+        "endpoint_id",
+        "vendor_model_id",
+        "operational_goodput",
+        "operational_goodput_ci95_low",
+        "operational_goodput_ci95_high",
+        "availability",
+        "successful_answers",
+        "failed_answers",
+        "n_a_reason_code",
+        "n_a_reason",
+    }
+    if not required_csv_fields <= csv_fields:
+        problems.append(
+            "frontier companion CSV is missing fields: "
+            + ", ".join(sorted(required_csv_fields - csv_fields))
+        )
+    if csv_rows:
+        expected_gemini_csv = {
+            "benchmark_status": "scored",
+            "operational_goodput": "0.3977777777777778",
+            "operational_goodput_ci95_low": "0.16666666666666666",
+            "operational_goodput_ci95_high": "0.6511111111111111",
+            "availability": "1.0",
+            "successful_answers": "15",
+            "failed_answers": "0",
+        }
+        for key, expected in expected_gemini_csv.items():
+            if csv_rows[0].get(key) != expected:
+                problems.append(
+                    f"frontier companion CSV Gemini {key}="
+                    f"{csv_rows[0].get(key)!r}, expected {expected!r}"
+                )
+    if len(csv_rows) > 1:
+        qwen_csv_metrics = (
+            "operational_goodput",
+            "operational_goodput_ci95_low",
+            "operational_goodput_ci95_high",
+            "availability",
+            "successful_answers",
+            "failed_answers",
+        )
+        if any(csv_rows[1].get(key) != "N/A" for key in qwen_csv_metrics):
+            problems.append("frontier companion CSV Qwen metrics must render as N/A")
+        if csv_rows[1].get("n_a_reason_code") != "missing":
+            problems.append("frontier companion CSV Qwen reason code must be missing")
+
+    checksum_entries, checksum_problems = _checksum_entries(checksum_path)
+    problems.extend(checksum_problems)
+    if checksum_entries != FRONTIER_COMPANION_ARTIFACT_SHA256:
+        problems.append(
+            "frontier companion SHA256SUMS does not match the pinned release digests"
+        )
+    for name, expected_digest in checksum_entries.items():
+        artifact = data_dir / name
+        if not artifact.is_file():
+            problems.append(f"frontier companion checksum target is missing: {name}")
+        elif _sha256(artifact) != expected_digest:
+            problems.append(
+                f"checksum mismatch: {FRONTIER_COMPANION_DATA_RELATIVE / name}"
+            )
+
+    markdown = markdown_path.read_text(encoding="utf-8")
+    required_markdown_fragments = (
+        FRONTIER_COMPANION_MATRIX_ID,
+        "`kc-gemini-3.1-pro-preview`",
+        "`kc-qwen3.8-max-preview`",
+        "Not assigned (single row)",
+        "39.78%",
+        "16.67% to 65.11%",
+        "100.00%",
+        "15 / 15",
+        "No pairwise test exists",
+        FRONTIER_COMPANION_SOURCE_COMMIT,
+    )
+    for fragment in required_markdown_fragments:
+        if fragment not in markdown:
+            problems.append(
+                f"frontier companion Markdown omits required content {fragment!r}"
+            )
+    for path in (json_path, csv_path, markdown_path):
+        text = path.read_text(encoding="utf-8")
+        if any(pattern.search(text) for pattern in local_path_patterns):
+            problems.append(
+                f"frontier companion artifact exposes a machine-local path: {path.name}"
+            )
+
+    companion_handout_name = f"{FRONTIER_COMPANION_RESULTS_STEM}.md"
+    for path in public_surfaces:
+        text = path.read_text(encoding="utf-8")
+        if FRONTIER_COMPANION_MATRIX_ID not in text:
+            problems.append(
+                f"{path.relative_to(root).as_posix()} omits the companion matrix id"
+            )
+        if companion_handout_name not in text:
+            problems.append(
+                f"{path.relative_to(root).as_posix()} omits the companion handout link"
+            )
+        if "39.78%" not in text:
+            problems.append(
+                f"{path.relative_to(root).as_posix()} omits Gemini companion goodput"
+            )
     return problems
 
 
@@ -1123,11 +1636,13 @@ def verify_release(
     version = str((metadata.get("project") or {}).get("version") or "")
     checks: list[tuple[str, Callable[[], list[str]]]] = [
         ("required files", lambda: check_required_files(root, version)),
+        ("release workflow assets", lambda: check_release_workflow_assets(root)),
         ("version consistency", lambda: check_versions(root, expected_version, tag)),
         ("internal Markdown links", lambda: check_markdown_links(root)),
         ("JSON and schemas", lambda: check_json_and_schemas(root)),
         ("public ranking bundle", lambda: check_public_ranking(root, version)),
         ("frontier ranking bundle", lambda: check_frontier_ranking(root, version)),
+        ("frontier companion bundle", lambda: check_frontier_companion(root, version)),
         ("white-paper artifacts", lambda: check_whitepaper_artifacts(root)),
         ("repository safety", lambda: check_repository_safety(root)),
         ("package metadata", lambda: check_package_metadata(root, version)),

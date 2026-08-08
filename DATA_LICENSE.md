@@ -9,7 +9,7 @@ https://creativecommons.org/licenses/by/4.0/
 Suggested attribution:
 
 > Dr. Prashant Kumar Dey, "LLM Benchmark Protocol - frozen Kendr catalog pilot,
-> 2026-08-08," Kendr, release v1.0.2.
+> 2026-08-08," Kendr, release v1.0.3.
 
 This grant covers the project's original aggregation, metadata, and result
 tables. It does not relicense third-party benchmark questions, model outputs,
